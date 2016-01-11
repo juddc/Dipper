@@ -1,0 +1,36 @@
+fn test(i) {
+	i = 0
+	x : int = if i > 0 { 5 } else { 10 }
+	print x
+	q : int = if i > 0 {
+		5
+	}
+	else {
+		10
+	}
+	q : int = if i > 0 {
+		5
+	}
+	else {
+		10
+	}
+	y = if i > 10 { i + 10 } else { i // 20 }
+	z = match y {
+		1 :: 5 + 5
+		2 :: 6 + 6
+		3 :: 7 + 7
+		4 :: {
+			q += 1
+			q
+		}
+		5 :: if q > 5 { 10 } else { 20 }
+		6 :: if q > 5 {
+				10
+			}
+			else {
+				20
+			}
+		7 + 6 :: 66
+		* :: zzz
+	}
+}

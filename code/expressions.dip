@@ -1,0 +1,7 @@
+fn main() {
+	for i in 10..20 { print i }
+	z : int = x + y
+	z += 10
+	q = x + y
+	a : float = z + add(x, z)
+}

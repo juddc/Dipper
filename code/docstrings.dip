@@ -1,0 +1,15 @@
+fn whatever(a, b, c) {
+	| "This is a docstring"
+	| "This is another docstring"
+	x = 10
+	return a + b + c + x
+
+	if x > 10 {
+		| "neat!"
+		print x
+	}
+	elif x > 20 {
+		| "also neat!"
+		print x
+	}
+}

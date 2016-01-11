@@ -1,0 +1,17 @@
+fn range(val : int) {
+	i : int = 0
+	while i < val {
+		i += 1
+		yield i
+	}
+}
+
+fn loopthing() {
+	for i in range(10) {
+		print i + 1
+	}
+
+	while i > 20 {
+		print i
+	}
+}

@@ -1,0 +1,15 @@
+import math
+from math.abc import pow
+from math import abc.pow
+import .toplevel
+import ..up_one
+import ...up_two
+import ....up_three
+
+DEBUG = 5
+
+ANOTHER_CONST_THINGY = pow(5, 7)
+
+fn pow(x : int, power : int) {
+	return math.pow(x, power)
+}

@@ -1,0 +1,10 @@
+struct Vector2 {
+	x : float = 10
+	y : float, y > 0 and z > 10
+	name : string,
+		len(name) > 4
+}
+
+fn add(a : Vector2, b : Vector2) -> Vector2 {
+	return Vector2(a.x + b.x, a.y + b.y)
+}

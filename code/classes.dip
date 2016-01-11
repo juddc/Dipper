@@ -1,0 +1,20 @@
+class Vector3 {
+	x : float
+	y : float
+	z : float
+
+	fn __init__(self, x : float, y : float, z : float) {
+		self.x = x
+		self.y = y
+		self.z = z
+		return 5
+	}
+
+	fn __add__(self, other) -> Vector3 {
+		return Vector3(self.x + other.x, self.y + other.y, self.z + other.z)
+	}
+
+	fn __sub__(self, other) -> Vector3 {
+		return Vector3(self.x - other.x, self.y - other.y, self.z - other.z)
+	}
+}

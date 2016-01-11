@@ -1,0 +1,14 @@
+fn range(count : int) {
+	i : int = 0
+	while i < count {
+		i += 1
+		if i > 0 {
+			i += 2
+			yield i
+		}
+		elif i >= 99 {
+			yield i + 2
+		}
+		else { yield i + 1 }
+	}
+}
