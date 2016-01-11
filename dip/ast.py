@@ -146,6 +146,14 @@ class Function(Node):
         self.name = nodes.pop(0).data
         self.args = nodes.pop(0)
 
+        # if this function is the main function, then its optional to add an
+        # argv argument. if one was not specified, add it to the AST automatically
+        # so we can always assume its there.
+        if self.name == "main" and len(self.args.children) == 0:
+            argv = TypedName()
+            argv.set([Name("argv"), Name("[str]")])
+            self.args.children.append(argv)
+
         if len(nodes) > 0 and nodes[0].type in ("Name", "DottedName"):
             self.returnType = nodes.pop(0)
         else:

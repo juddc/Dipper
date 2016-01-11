@@ -6,7 +6,11 @@ sys.path.insert(0, "./pypy-source")
 
 import os
 
-from rpython.rlib.objectmodel import we_are_translated
+try:
+    from rpython.rlib.objectmodel import we_are_translated
+except ImportError:
+    def we_are_translated():
+        return False
 
 if we_are_translated():
     from rpython.rlib.streamio import open_file_as_stream

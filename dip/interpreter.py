@@ -165,15 +165,11 @@ class VirtualMachine(object):
 
         # add main function to callstack
         if 'main' in self.fn:
-            if self.fn['main'].argcount() == 1:
-                argv = DList()
-                for v in self.args:
-                    argv.append(DString(v))
-                callstack.append(self.fn['main'].mkframe(argv))
-            elif self.fn['main'].argcount() == 0:
-                callstack.append(self.fn['main'].mkframe(DList()))
-            else:
-                raise ValueError("Main function must accept zero or one arguments")
+            # construct an array and populate it with argv values
+            argv = DList()
+            for v in self.args:
+                argv.append(DString(v))
+            callstack.append(self.fn['main'].mkframe(DList.args([argv])))
         else:
             print "No main function, exiting"
             return

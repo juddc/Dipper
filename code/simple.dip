@@ -1,4 +1,4 @@
-fn main(argv) {
+fn main() {
 	print "hello world"
 	return 0
 }

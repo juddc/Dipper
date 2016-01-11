@@ -139,8 +139,10 @@ class FrameCompiler(Compiler):
 
         # populate function argument values
         if self.astnode.type == "Function" and args is not None:
-            assert args.len_py() == len(self.astnode.args)
-
+            if args.len_py() != len(self.astnode.args):
+                print args.repr_py()
+                print self.astnode.args
+                raise ValueError("Wrong number of arguments passed to function %s" % self.name)
             for i in range(len(self.argIdx)):
                 data[self.argIdx[i]] = args.getitem_py(i)
 
