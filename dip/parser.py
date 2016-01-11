@@ -10,38 +10,36 @@ import rpython.rlib.parsing.tree as parsetree
 
 from dip import ast
 
-CHILDREN = "children"
-ADDITIONAL_INFO = "additional_info"
+#grammar = py.path.local("./dip").join("grammar.txt").read("rt")
+#regexs, rules, astGenerator = parse_ebnf(grammar)
+#parseFunc = make_parse_function(regexs, rules, eof=True)
 
 GRAMMAR_FILE = os.path.join(os.path.dirname(__file__), "grammar.txt")
+TRANSFORMER_FILE = os.path.join(os.path.dirname(__file__), "transformer.py")
 
-RPY = False
-
-if RPY:
-    grammar = py.path.local("./dip").join("grammar.txt").read("rt")
+with open(GRAMMAR_FILE) as fp:
+    grammar = fp.read()
+try:
     regexs, rules, astGenerator = parse_ebnf(grammar)
-    parseFunc = make_parse_function(regexs, rules, eof=True)
-else:
-    with open(GRAMMAR_FILE) as fp:
-        grammar = fp.read()
-    try:
-        regexs, rules, astGenerator = parse_ebnf(grammar)
-    except ParseError as e:
-        self._printErrorInfo(e)
-        raise
-    parseFunc = make_parse_function(regexs, rules, eof=True)
+except ParseError as e:
+    pos = e.source_pos
+    print "ParseError on line %s, column %s" % (pos.lineno, pos.columnno)
+    print e.nice_error_message()
+    print ""
+    raise
+parseFunc = make_parse_function(regexs, rules, eof=True)
 
 # At RPython compile-time, use the AST code-generator to write out the transformer
 # module to a file, then import it, so that it gets compiled to C, since RPython
 # can't handle dymanically-generated code otherwise
-with open("./dip/transformer.py", 'w') as fp:
+with open(TRANSFORMER_FILE, 'w') as fp:
     fp.write("import py\n")
     fp.write("from rpython.rlib.parsing.tree import Nonterminal, RPythonVisitor\n")
     fp.write("from rpython.rlib.objectmodel import we_are_translated\n")
     fp.write("\n\n")
     fp.write(astGenerator.source)
 
-# import the now-generated class
+# import the newly-generated class
 from dip.transformer import ToAST
 
 
@@ -100,7 +98,6 @@ class DipperParser(object):
         "typed_name_req":    ast.TypedName,
         "call_args":         ast.CallArgs,
         "func_args":         ast.FuncArgs,
-        #"func_ret_type":     ast.ReturnType,
         "op_=":              ast.Operator,
         "op_+":              ast.Operator,
         "op_-":              ast.Operator,
