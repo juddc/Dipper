@@ -1,5 +1,7 @@
 @echo off
 
+SET PYTHONPATH=%PYTHONPATH%:.\pypy-source
+
 REM Make with -O0:
 REM C:\pypy\pypy.exe pypy-source\rpython\bin\rpython -O0 --gc=hybrid dipper.py
 

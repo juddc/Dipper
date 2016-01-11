@@ -200,6 +200,7 @@ class DipperParser(object):
         newtree = ToAST().transform(result)
 
         if self.debug:
+            print ">>> Parse tree <<<"
             self._printTree(newtree)
 
         tree = ast.RootNode()

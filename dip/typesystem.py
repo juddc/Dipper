@@ -55,7 +55,7 @@ class DBase(object):
         return DString(self.repr_py())
 
     def repr_py(self):
-        return str(self)
+        return "<%s: %s>" % (self.__class__.__name__, self.str_py())
 
     def hash(self):
         return DInteger(self.hash_py())
@@ -119,6 +119,9 @@ class DNull(DBase):
     def str_py(self):
         return "null"
 
+    def repr_py(self):
+        return "<DNull>"
+
 
 class DBool(DBase):
     typename = "bool"
@@ -161,6 +164,9 @@ class DBool(DBase):
 
     def str_py(self):
         return "True" if self._bool else "False"
+
+    def repr_py(self):
+        return "<%s>" % self.str_py()
 
 
 
@@ -328,6 +334,9 @@ class DString(DBase):
     def str_py(self):
         return self._str
 
+    def repr_py(self):
+        return "<DString: '%s'>" % self.str_py()
+
 
 class DFunc(DBase):
     typename = "func"
@@ -392,10 +401,10 @@ class DList(DBase):
             assert isinstance(val, DBase)
         self._list[idx] = val
 
-    @classmethod
-    def args(cls, vals):
+    @staticmethod
+    def args(vals):
         """ Helper for creating a list for use as function arguments """
-        inst = cls()
+        inst = DList()
         for val in vals:
             inst.append(val)
         return inst

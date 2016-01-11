@@ -1,6 +1,11 @@
 """
 Dipper entry-point script
 """
+import sys
+sys.path.insert(0, "./pypy-source")
+
+import os
+
 from rpython.rlib.objectmodel import we_are_translated
 
 if we_are_translated():
@@ -12,63 +17,109 @@ from dip import parser, compiler, interpreter
 
 if we_are_translated():
     def readfile(filename):
-        f = open_file_as_stream(argv[1])
+        f = open_file_as_stream(filename)
         data = f.readall()
         f.close()
+        return data
 else:
     def readfile(filename):
-        f = open(argv[1])
+        f = open(filename, 'r')
         data = f.read()
         f.close()
+        return data
 
 
 def main(argv):
-    if not len(argv) == 2:
-        print "Usage: %s <filename>.dip\n" % argv[0]
+    argc = len(argv)
+
+    # debugging flags
+    debug = 0
+    debug_parser = False
+    debug_compiler = False
+    debug_interpreter = False
+
+    if argc == 1:
+        print "Usage: %s [-pci] <filename>.dip\n" % argv[0]
+        print "    -p: Debug parser/ast"
+        print "    -c: Debug compiler/bytecode"
+        print "    -i: Debug interpreter/execution"
+        return 1
+    elif argc == 2:
+        debug = 0
+        filename = argv[1]
+        dip_args = []
+    else:
+        assert argc > 2
+        if argv[1].startswith("-"):
+            # figure out debug flags based on the first argument
+            for ch in argv[1]:
+                if ch == "p":
+                    debug_parser = True
+                if ch == "c":
+                    debug_compiler = True
+                elif ch == "i":
+                    debug_interpreter = True
+            filename = argv[2]
+            dip_args = argv[2:]
+        else:
+            filename = argv[1]
+            dip_args = argv[1:]
+
+    if not os.path.exists(filename):
+        print "Specified file '%s' does not exist." % filename
         return 1
 
-    data = readfile(argv[1])
+    # read in the file contents
+    data = readfile(filename)
 
-    dip = parser.DipperParser(debug=False)
+    # create a parser
+    dip = parser.DipperParser(debug=debug_parser)
 
-    #print "=============== code ==================="
     # just a debugging step so we can see the same input the parser sees
+    #print "=============== code ==================="
+    #print ">>> Source code (after small preprocessing step) <<<"
     #print dip._prepSource(data)
 
-    #print "============== parsing ================="
+    if debug_parser > 0:
+        print "============== parsing ================="
+
     tree = dip.parse(data)
-    #print tree.show()
 
-    #print "============= compiling ================"
+    if debug_parser:
+        print ">>> AST <<<"
+        print tree.show()
 
-    args = []
-    for arg in argv[1:]:
-        args.append(arg)
+    if debug_compiler:
+        print "============= compiling ================"
 
-    vm = interpreter.VirtualMachine(args, debug=False)
+    vm = interpreter.VirtualMachine(dip_args, debug=debug_interpreter)
 
+    if debug_compiler:
+        print ">>> Compiled frames <<<"
     for node in tree:
         assert node.type == "Function"
         ctx = compiler.FrameCompiler(node)
-        #print ctx
+        if debug_compiler:
+            print ctx.toString()
         vm.addfunc(ctx)
 
-    #print "============= executing ================"
+    if debug_parser or debug_compiler or debug_interpreter:
+        print "============= executing ================"
+
     vm.run()
 
     return 0
 
 
-if we_are_translated():
-    def target(driver, args):
-        return main, None
+def target(driver, args):
+    return main, None
 
-    def jitpolicy(driver):
-        return JitPolicy()
-        
+
+def jitpolicy(driver):
+    return JitPolicy()
+    
 
 # this only runs if the script is being run from a regular Python interpreter,
 # so just call the RPython main function
 if __name__ == '__main__':
-    import sys
     main(sys.argv)

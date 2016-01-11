@@ -132,9 +132,9 @@ class Frame(object):
         data = []
         for i, obj in enumerate(self.data):
             name = ""
-            if i in self.vars:
-                name = " (name: %s)" % self.vars[i]
-            data.append("    %s : %s%s" % (i, repr(obj), name))
+            if i in self.vars_rev:
+                name = " (bound to name: %s)" % self.vars_rev[i]
+            data.append("    %s : %s%s" % (i, obj.repr_py(), name))
 
         return "bytecode:\n%s\ndata:\n%s" % ("\n".join(bc), "\n".join(data))
 
@@ -198,7 +198,7 @@ class VirtualMachine(object):
             if debug:
                 print frame.ptr, INST_STRS[inst], a, b, c
                 for i, obj in enumerate(data):
-                    print "    ", i, ":", obj
+                    print "    ", i, ":", obj.repr_py()
 
             if inst == JMP:
                 assert a >= 0 and a < len(frame.bytecode)

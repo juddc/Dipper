@@ -10,3 +10,8 @@ pypy-source/*
 # the AST transformer is created at runtime
 dip/transformer.py
 
+# compiled interpreter binary name
+dipper-c.exe
+
+# visual studio crap that gets created when debugging
+*.suo

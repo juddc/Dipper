@@ -181,12 +181,6 @@ class FrameCompiler(Compiler):
         self.vars[name] = dataidx
 
     def emit(self, opcode, a=-1, b=-1, c=-1):
-        #if isinstance(a, DBase):
-        #    a = self.datatable[a]
-        #if isinstance(b, DBase):
-        #    b = self.datatable[b]
-        #if isinstance(c, DBase):
-        #    c = self.datatable[c]
         self.bytecode.append( (INST[opcode], a, b, c) )
         # return the instruction pointer location for the emitted inst
         return self.currentptr()
@@ -291,7 +285,8 @@ class FrameCompiler(Compiler):
 
     def toString(self):
         fakeFrameArgs = DList.args([DNull() for _ in range(len(self.argIdx))])
-        return "----- %s -----\n%s" % (self.name, self.mkframe(fakeFrameArgs).toString())
+        fakeFrame = self.mkframe(fakeFrameArgs)
+        return "----- %s -----\n%s" % (self.name, fakeFrame.toString())
 
     def __str__(self):
         return self.toString()
