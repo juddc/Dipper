@@ -1,0 +1,10 @@
+Some really useful links for developing with RPython
+
+http://kirbyfan64.github.io/posts/the-magic-of-rpython.html
+http://doc.pypy.org/en/latest/windows.html
+http://rpython.readthedocs.org/en/latest/rtyper.html
+http://rpython.readthedocs.org/en/latest/rlib.html#ebnf
+http://joshsharp.com.au/blog/view/rpython-rply-interpreter-1
+http://stackoverflow.com/questions/7161856/what-is-statically-typed-in-rpython
+http://morepypy.blogspot.com/2011/04/tutorial-writing-interpreter-with-pypy.html
+http://doc.pypy.org/en/release-1.9/rlib.html
