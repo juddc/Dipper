@@ -2,6 +2,11 @@
 __pycache__
 archives/*
 
+# ignore the PyPy source code
+pypy-source/*
+# but don't ignore the placeholder file
+!pypy-source/put_pypy_source_here.txt
+
 # the AST transformer is created at runtime
 dip/transformer.py
 
