@@ -1,3 +1,7 @@
 *.pyc
 __pycache__
 archives/*
+
+# the AST transformer is created at runtime
+dip/transformer.py
+
