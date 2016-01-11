@@ -1,0 +1,82 @@
+import system
+
+DEBUG = True
+
+object print {
+	stdout : stream = system.stdout
+
+	fn __statement__(name) {
+		stdout.write(name)
+		stdout.write("\n")
+	}
+}
+
+object print2 : print {
+	stdout : stream = custom_stream
+}
+
+fn range(count) {
+	i = 0
+	while i < count {
+		i += 1
+		yield i
+	}
+}
+
+struct Vector2 {
+	x : float
+	y : float
+}
+
+class Vector3 {
+	x : float
+	y : float
+	z : float
+
+	fn __init__(self, x : float, y : float, z : float) {
+		self.x = x
+		self.y = y
+		self.z = z
+	}
+
+	fn __add__(self, other) {
+		return Vector3(self.x + other.x, self.y + other.y, self.z + other.z)
+	}
+
+	fn __sub__(self, other) {
+		return Vector3(self.x - other.x, self.y - other.y, self.z - other.z)
+	}
+}
+
+fn add1(x, y) {
+	return x + y
+}
+
+fn add2(x : int, y : int) -> int {
+	return x + y
+}
+
+fn add2b(x : int, y: int) {
+	return x + y
+}
+
+fn add3(x : Vector3, y : Vector3) -> Vector3 {
+	return x + y
+}
+
+fn hello(name) {
+	print name
+}
+
+fn main(argv) {
+	if DEBUG {
+		hello("judd")
+	}
+	else {
+		hello("somedude")
+	}
+
+	for i in range(10) {
+		print i
+	}
+}

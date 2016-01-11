@@ -1,0 +1,80 @@
+fn add(x, y) {
+	return x + y
+}
+
+fn rec(x, max) {
+	# slow down the recursion a little
+	a = sqrt(999.91132 - 7.0)
+	b = sqrt(999.91132 - 7.0)
+	c = sqrt(999.91132 - 7.0)
+	d = sqrt(999.91132 - 7.0)
+	e = sqrt(999.91132 - 7.0)
+	f = sqrt(999.91132 - 7.0)
+	g = sqrt(999.91132 - 7.0)
+
+	x += 1
+	if x == max {
+		return x
+	}
+	else {
+		return rec(x, max)
+	}
+}
+
+fn dostuff() {
+	print "stuff"
+}
+
+fn main(argv) {
+	print add(5, 6)
+	dostuff()
+
+	x = sqrt(4)
+	print "neat", x
+
+	var = 10
+
+	var2 : types.thingy = "hmm"
+
+	var3 : str = "yep"
+
+	x = "hi" # this is a comment
+
+	print 5, 5, 5, 5
+
+	print "this is # a string"  # and this is a comment
+
+	print len(argv), 5, 5, 5
+
+	print " ", len("abc" + "zzz"),
+	print
+
+	dostuff()
+
+	print "Hello World"
+	x = 10
+	x += 1
+	print 5.0 + 5.5
+	print x + 5
+	x = 11
+	if x == 10 {
+		print "doing some math"
+		print add(x, 2) + 2
+	}
+	elif x == 11 {
+		print "its 11 i guess"
+		print "its 11 i guess"
+	}
+	elif x == 12 {
+		print "its 12 now"
+	}
+	else {
+		print "nope"
+	}
+
+	print rec(0, 100000)
+
+	print 5
+
+	return 0
+}

@@ -1,0 +1,22 @@
+import web
+
+struct Request {
+	headers : [str:str]
+}
+
+struct Response {
+	http : int
+	ctx : [str:str]
+}
+
+class Root {
+	fn index(req : Request) -> Response {
+		return Response(200, ["title": "Home Page"])
+	}
+}
+
+fn main(argv : [str]) -> int {
+	srv = web.Server()
+	srv.mount("/", Root)
+	srv.run()
+}

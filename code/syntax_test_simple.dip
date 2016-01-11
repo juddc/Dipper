@@ -1,0 +1,6 @@
+fn add(x, y) {
+	return x + y
+}
+fn main(argv) {
+	print add(1, 2)
+}

@@ -1,0 +1,1 @@
+This folder contains Dipper files meant for testing the compiler.
