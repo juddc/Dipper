@@ -1,0 +1,8 @@
+<snippet>
+    <content><![CDATA[struct ${1:Name} {
+	${2:name}: ${3:type}, ${4:${2:name} > 0}
+}]]></content>
+    <tabTrigger>struct</tabTrigger>
+    <scope>source.dipper</scope>
+    <description>struct … { … }</description>
+</snippet>
