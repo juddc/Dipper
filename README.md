@@ -21,8 +21,13 @@ fn main(argv) {
 
 ## Compiling Dipper
 
-You don't actually have to compile Dipper to try it out. You can run it with any
-Python 2 interpreter such as PyPy 4 or CPython 2.7.
+You don't actually have to build the Dipper interpreter to try it out. Dipper is written
+in RPython, which is a subset of Python 2, which means you can run it with any Python 2
+interpreter such as PyPy 4 or CPython 2.7.
+
+Dipper depends on several libraries included with RPython, so you'll need to download
+the PyPy source and place it into the `pypy-source` directory whether you're compiling
+to native code or not. There are no other dependencies.
 
 Simple hello-world example:
 
@@ -32,10 +37,14 @@ To get a huge speed boost, you can compile the whole dipper codebase to native c
 using RPython from the PyPy project.
 
 First, download the PyPy source (tested with version 4.0.1) and place it in the
-pypy-source directory.
+`pypy-source` directory.
 
 > #### Using Visual Studio 2013?
-> If you want to compile with Visual Studio 2013, you'll need to make a small change to `pypy-source/rpython/translator/platform/windows.py` in the function `find_msvc_env`. Where it says `for vsver in (100, 90, 80, ...`, add the value `120` to that tuple. That will allow RPython to find Visual Studio 2013. Visual Studio 2015 will not work and is not supported until the PyPy project decides to support it.
+> If you want to compile with Visual Studio 2013, you'll need to make a small change to
+> `pypy-source/rpython/translator/platform/windows.py` in the function `find_msvc_env`.
+> Where it says `for vsver in (100, 90, 80, ...`, add the value `120` to that tuple.
+> That will allow RPython to find Visual Studio 2013. Visual Studio 2015 will not work
+> and is not supported until the PyPy project decides to support it.
 
 Next, you'll need either PyPy 4 or CPython 2.7 installed. The build scripts make.cmd
 and make.sh look for PyPy but you can change these to look for CPython if you'd like.
