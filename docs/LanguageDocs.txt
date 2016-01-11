@@ -1,0 +1,76 @@
+
+Functions
+	Functions are specified like so:
+		fn add(x, y) {
+			return x + y
+		}
+
+	You can also add optional argument types:
+		fn add(x : int, y : int) {
+			return x + y
+		}
+
+	You can also add a return type:
+		fn add(x : int, y : int) -> int {
+			return x + y
+		}
+
+	Fibbonacci example:
+		fn fib(n) {
+			if n < 2 {
+				return n
+			}
+			return fib(n - 2) + fib(n - 1)
+		}
+
+
+
+Main Function
+	The entry point of a program is called "main". It takes one argument, "argv", which
+	is a list of arguments from the command line.
+		fn main(argv) {
+			return 0
+		}
+
+
+
+Print Statement
+	The print statement takes a comma-separated list of expressions, and will print
+	all of the expressions with spaces in between.
+
+	A newline is automatically printed after the expressions. If a comma is added
+	to the end of the print statement, no newline will be added.
+
+	If no expressions are specified, only a newline will be printed.
+
+	Examples:
+		print "Hello World"    # prints "Hello World\n"
+		print 5 - 2            # prints "3\n"
+		print 5 + 5, 10 + 10   # prints "10 20\n"
+		print 5 + 5, 10 + 10,  # prints "10 20"
+		print                  # prints "\n"
+
+
+
+Builtin Functions
+
+	len
+		The len function returns an integer representing the length of an object. This
+		is only implemented on strings and lists. For example:
+
+		fn main(argv) {
+			x = "Hello"
+			print len(x)     # prints 5
+			print len(argv)  # prints 1 (assuming no arguments)
+		}
+
+
+	sqrt
+		The sqrt function returns a float representing the square root of the input,
+		which can be an int or a float. For example:
+
+		fn main(argv) {
+			x = 4
+			print sqrt(x)   # prints 2.0
+		}
+
