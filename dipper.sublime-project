@@ -1,0 +1,42 @@
+{
+	"folders":
+	[
+		{
+			"path": ".",
+			"folder_exclude_patterns": [
+				"__pycache__",
+				"archives"
+			],
+			"file_exclude_patterns": [
+				"*.pyc",
+				"*.sublime-workspace",
+				"put_pypy_source_here.txt",
+				".hg*"
+			]
+		}
+	],
+	"build_systems":
+	[
+		{
+			"name": "Compile Dipper (-O2)",
+			"cmd": ["pypy", "./pypy-source/rpython/bin/rpython", "dipper.py"],
+			"working_dir": "${project_path:${folder}}"
+		},
+		{
+			"name": "Compile Dipper (-O0)",
+			"cmd": ["pypy", "./pypy-source/rpython/bin/rpython", "-O0", "--gc=hybrid", "dipper.py"],
+			"working_dir": "${project_path:${folder}}"
+		},
+		{
+			"name": "Run Dipper Script (JIT)",
+			"cmd": ["./dipper-c", "$file"],
+			"working_dir": "${project_path:${folder}}",
+			"selector": "source.dipper"
+		},
+		{
+			"name": "Run Dipper Script (Interpreted)",
+			"cmd": ["pypy", "dipper.py", "$file"],
+			"working_dir": "${project_path:${folder}}"
+		}
+	]
+}
