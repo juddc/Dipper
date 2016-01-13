@@ -4,7 +4,7 @@ Dipper bytecode compilers
 from rpython.rlib.objectmodel import we_are_translated
 
 from interpreter import INSTRUCTION_SET, INST, INST_STRS, Frame, Stream
-from typesystem import DBase, DNull, DInteger, DFloat, DString, DFunc, DList, DObject
+import typesystem as types
 from common import CompileError
 
 
@@ -21,7 +21,7 @@ class Compiler(object):
 
     def mkframe(self, args):
         """ Returns a frame with ALL UNIQUE POINTERS. Don't forget to copy stuff. """
-        assert type(args) is DList
+        assert type(args) is types.DList
         return Frame([], [], {})
 
 
@@ -45,15 +45,31 @@ class BytecodeCompiler(Compiler):
         self.data = data
         self.vars = {}
         self._argcount = argcount
+        if argcount > 0:
+            raise NotImplementedError("TODO: Implement arguments for testing raw bytecode")
 
     def argcount(self):
         return self._argcount
 
     def mkframe(self, args):
         if not we_are_translated():
-            assert args is None or isinstance(args, DList)
+            assert args is None or isinstance(args, types.DList)
         data = [ val.copy() if val is not None else None for val in self.data ]
         return Frame(self.bytecode, data, self.vars.copy())
+
+    def mkfunc(self):
+        """
+        Returns a DFunc object representing the compiled function
+        """
+        funcargs = []
+        #i = 0
+        #for arg in self.astnode.args:
+        #    dataidx = self.argIdx[i]
+        #    funcargs.append((arg.getName(), arg.getFullType(), dataidx))
+        #    i += 1
+        fn = types.DFunc()
+        fn.setfuncdata(self.name, funcargs, self.bytecode, self.data, self.vars)
+        return fn
 
     def _parse(self, code):
         bc = []
@@ -113,47 +129,54 @@ class FrameCompiler(Compiler):
 
         self.bytecode = []
         self.data = []
-        self.datatable = {}
         self.vars = {}
+
+        # keep a ref to null around so we don't have to keep recreating it
+        self.null = types.DNull()
 
         # hold on to the argument data indices for ease of plugging in argument values
         self.argIdx = []
 
         if astnode.type == "Function":
             for arg in astnode.args:
-                self.data.append(DNull())
+                self.data.append(types.DNull())
                 idx = len(self.data) - 1
                 self.argIdx.append(idx)
-                self.register(arg.getName(), idx)
+                self.register_var(arg.getName(), idx)
 
         self.astnode.compile(self)
+
+    def mkfunc(self):
+        """
+        Returns a DFunc object representing the compiled function
+        """
+        assert self.astnode.type == "Function"
+        funcargs = []
+        i = 0
+        for arg in self.astnode.args:
+            dataidx = self.argIdx[i]
+            funcargs.append((arg.getName(), arg.getFullType(), dataidx))
+            i += 1
+        fn = types.DFunc()
+        fn.setfuncdata(self.name, funcargs, self.bytecode, self.data, self.vars)
+        return fn
 
     def argcount(self):
         assert self.astnode.type == "Function"
         return len(self.astnode.args)
 
-    def mkframe(self, args):
-        assert type(args) is DList
-
-        data = [ val.copy() if val is not None else None for val in self.data ]
-
-        # populate function argument values
-        if self.astnode.type == "Function" and args is not None:
-            if args.len_py() != len(self.astnode.args):
-                print args.repr_py()
-                print self.astnode.args
-                raise ValueError("Wrong number of arguments passed to function %s" % self.name)
-            for i in range(len(self.argIdx)):
-                data[self.argIdx[i]] = args.getitem_py(i)
-
-        return Frame(self.bytecode, data, self.vars.copy())
-
     def pushobj(self, val):
-        assert isinstance(val, DBase)
+        assert isinstance(val, types.DBase)
         self.data.append(val)
-        idx = len(self.data) - 1
-        self.datatable[val] = idx
-        return idx
+        return len(self.data) - 1
+
+    def pushnull(self):
+        """
+        Same thing as pushobj, but pushes a null object, generally used as a placeholder
+        for something like a return value.
+        """
+        self.data.append(self.null)
+        return len(self.data) - 1
 
     def setbranch(self, instptr, newptr):
         vals = list(self.bytecode[instptr])
@@ -177,7 +200,7 @@ class FrameCompiler(Compiler):
         else:
             raise CompileError("Variable '%s' not defined" % name)
 
-    def register(self, name, dataidx):
+    def register_var(self, name, dataidx):
         if not we_are_translated():
             assert type(name) is str
         self.vars[name] = dataidx
@@ -286,7 +309,7 @@ class FrameCompiler(Compiler):
         return self.emit('LIST_LEN', idx, dest)
 
     def toString(self):
-        fakeFrameArgs = DList.args([DNull() for _ in range(len(self.argIdx))])
+        fakeFrameArgs = types.DList.new_list([types.DNull() for _ in range(len(self.argIdx))])
         fakeFrame = self.mkframe(fakeFrameArgs)
         return "----- %s -----\n%s" % (self.name, fakeFrame.toString())
 

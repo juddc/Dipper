@@ -1,6 +1,12 @@
 import os
+from rpython.rlib import jit
 from rpython.rlib.objectmodel import we_are_translated
+
+import typesystem as types
 from typesystem import DBase, DNull, DInteger, DFloat, DString, DList
+
+
+jitdriver = jit.JitDriver(greens=['ptr', 'bytecode'], reds="auto")
 
 
 class Stream(object):
@@ -145,37 +151,44 @@ class Frame(object):
 class VirtualMachine(object):
     def __init__(self, args, cb=None, debug=False):
         self.debug = debug
-
         self.args = args
-
-        self.fn = {}
+        self.callstack = []
         # callback for extracting the return value from unit tests
         self.cb = cb
 
-    def addfunc(self, compiler):
-        self.fn[compiler.name] = compiler
+    def setglobals(self, namespace):
+        self.globals = namespace
 
-    def run(self):
+    def callstack_push(self, funcname, args):
+        assert isinstance(args, DList)
+        self.callstack.append(Frame(*self.globals.get_func(funcname).mkframe(args)))
+
+    def run(self, pass_argv=True):
         debug = self.debug
 
         # keep a reference to null handy so we don't have to keep creating new ones
         null = DNull()
 
-        callstack = []
-
         # add main function to callstack
-        if 'main' in self.fn:
-            # construct an array and populate it with argv values
-            argv = DList()
-            for v in self.args:
-                argv.append(DString(v))
-            callstack.append(self.fn['main'].mkframe(DList.args([argv])))
+        if self.globals.contains_func("main"):
+            if pass_argv:
+                # construct an array and populate it with argv values
+                argv = DList()
+                for v in self.args:
+                    argv.append(DString.new_str(v))
+                mainargs = DList.new_list([argv])
+            else:
+                mainargs = DList()
+
+            self.callstack_push("main", mainargs)
         else:
             print "No main function, exiting"
             return
 
         while True:
-            frame = callstack[-1]
+            frame = self.callstack[-1]
+
+            jitdriver.jit_merge_point(ptr=frame.ptr, bytecode=frame.bytecode)
 
             if len(frame.bytecode) == 0:
                 print "Got empty frame; exiting"
@@ -194,10 +207,16 @@ class VirtualMachine(object):
             if debug:
                 print frame.ptr, INST_STRS[inst], a, b, c
                 for i, obj in enumerate(data):
-                    print "    ", i, ":", obj.repr_py()
+                    binding = ""
+                    if i in frame.vars_rev:
+                        binding = "(bound to: '%s')" % frame.vars_rev[i]
+                    print "    ", i, ":", obj.repr_py(), binding
 
             if inst == JMP:
                 assert a >= 0 and a < len(frame.bytecode)
+                # give the JIT engine a hint that we're about to step backwards
+                if a < frame.ptr:
+                    jitdriver.can_enter_jit(ptr=frame.ptr, bytecode=frame.bytecode)
                 frame.ptr = a
                 continue
 
@@ -238,20 +257,37 @@ class VirtualMachine(object):
                 data[c] = data[a].operator('<=', data[b])
 
             elif inst == CALL:
-                frame.ret = c
-                funcname = data[a]
-                assert type(funcname) is DString
-                assert funcname.len_py() > 0
-                callstack.append(self.fn[funcname.str_py()].mkframe(data[b]))
+                callable_name = data[a]
+                assert type(callable_name) is DString # func name
+                assert callable_name.len_py() > 0
+                assert isinstance(data[b], DList) # args
+                name = callable_name.str_py()
 
-                # guard against crazy
-                if len(callstack) > 500000:
-                    print "Error: callstack size over 500,000"
+                # calling a function
+                if self.globals.contains_func(name):
+                    frame.ret = c
+
+                    self.callstack_push(name, data[b])
+
+                    # guard against crazy
+                    if len(self.callstack) > 500000:
+                        print "Error: callstack size over 500,000"
+                        break
+                        #sys.exit(1)
+
+                    if debug:
+                        print "------- call %s ------- (stacksize: %s)" % (a, len(self.callstack))
+
+                # init'ing a struct
+                elif self.globals.contains_struct(name):
+                    inst = types.DStructInstance()
+                    inst.set_structdef(self.globals.get_struct(name))
+                    inst.assign_list(data[b])
+                    data[c] = inst
+
+                else:
+                    print "Error calling '%s': item cannot be found." % name
                     break
-                    #sys.exit(1)
-
-                if debug:
-                    print "------- call %s ------- (stacksize: %s)" % (a, len(callstack))
 
             elif inst == BT:
                 assert b >= 0 and b < len(frame.bytecode)
@@ -295,14 +331,14 @@ class VirtualMachine(object):
                 frame.streams[a].write("\n")
 
             elif inst == RET:
-                callstack.pop(-1)
-                if len(callstack) == 0:
+                self.callstack.pop(-1)
+                if len(self.callstack) == 0:
                     if debug:
                         print "Exit: return called from main"
                     if self.cb is not None:
                         self.cb(data[a])
                     break
-                nextframe = callstack[-1]
+                nextframe = self.callstack[-1]
 
                 assert isinstance(data[a], DBase)
 
@@ -315,7 +351,7 @@ class VirtualMachine(object):
                     nextframe.data[nextframe.ret] = null
 
                 if debug:
-                    print "------- return ------- (stacksize: %s)" % len(callstack)
+                    print "------- return ------- (stacksize: %s)" % len(self.callstack)
                 continue
 
             elif inst == EXIT:
@@ -352,59 +388,3 @@ def execute(code, data=None):
     vm.push(frame)
     vm.run()
 
-
-if __name__ == '__main__':
-    execute("""
-        LIST_NEW   0
-        LIST_ADD   0    1
-        LIST_ADD   0    2
-        LIST_LEN   0    4
-        LIST_POP   0    0    3
-        WRITEO     0    0
-        WRITENL    0
-        RET
-    """, [
-        DNull(),       # data 0, list
-        DInteger(2),   # data 1, A
-        DInteger(4),   # data 2, B
-        DInteger(),    # data 3, list 0, popped
-        DInteger(),    # data 4, list 0 length
-    ])
-
-    execute("""
-        ADD        0      1      2       # 0    data2 = data0 + data1
-        WRITEO     0      2              # 1    stdout.write(data2)
-        WRITENL    0                     # 2    stdout.write(newline)
-        RET                              # 3    return
-    """, [
-        DInteger(32),  # data 0
-        DInteger(64),  # data 1
-        DInteger()],   # data 2
-    )
-
-    execute("""
-        BNE       1      2      2       # 0    if data1 != data2: goto 2
-        RET                             # 1    return
-        ADD       0      1      1       # 2    data1 = data0 + data1
-        WRITEO    0      1              # 3    stdout.write(data1)
-        WRITENL   0                     # 4    stdout.write(newline)
-        PASS      0                     # 5    no-op
-        JMP       0                     # 6    goto 0
-    """, [
-        DInteger(1),    # data 0
-        DInteger(32),   # data 1
-        DInteger(64),   # data 2
-    ])
-
-    execute("""
-        MUL     0    1    0        # data0 * data1 = data0
-        ADD     2    0    2        # data2 + data0 = data2
-        ADD     2    3    2        # data2 + data3 = data2
-        WRITEO  0    2             # stdout.write(data2)
-        RET                        # return
-    """, [
-        DFloat(0.123),   # data 0
-        DFloat(0.450),   # data 1
-        DString(),       # data 2
-        DString("\n"),   # data 3
-    ])

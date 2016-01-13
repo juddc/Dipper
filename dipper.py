@@ -17,6 +17,7 @@ if we_are_translated():
     from rpython.jit.codewriter.policy import JitPolicy
 
 from dip import parser, compiler, interpreter
+from dip.namespace import Namespace
 
 
 if we_are_translated():
@@ -98,14 +99,22 @@ def main(argv):
 
     vm = interpreter.VirtualMachine(dip_args, debug=debug_interpreter)
 
-    if debug_compiler:
-        print ">>> Compiled frames <<<"
+    globalns = Namespace("globals")
+
     for node in tree:
-        assert node.type == "Function"
-        ctx = compiler.FrameCompiler(node)
-        if debug_compiler:
-            print ctx.toString()
-        vm.addfunc(ctx)
+        if node.type == "Function":
+            ctx = compiler.FrameCompiler(node)
+            globalns.add_func(node.name, ctx.mkfunc())
+        elif node.type == "Struct":
+            structdef = node.mkstruct()
+            globalns.add_struct(node.name, structdef)
+        else:
+            raise ValueError("Unhandled top-level node type '%s'" % node.type)
+
+    if debug_compiler:
+        print globalns.toString()
+
+    vm.setglobals(globalns)
 
     if debug_parser or debug_compiler or debug_interpreter:
         print "============= executing ================"

@@ -181,11 +181,18 @@ class Function(Node):
 class Struct(Node):
     def set(self, nodes):
         name = nodes.pop(0)
-        fields = nodes
-
-        self.name = name.getDottedName()
-        for field in fields:
+        self.name = name.getName()
+        for field in nodes:
             self.children.append(field)
+
+    def mkstruct(self):
+        st = types.StructDef(self.name, len(self.children))
+        for field in self.children:
+            ftype = field.typedname.getType()
+            st.setfield(
+                field.typedname.getName(),
+                types.nameToType(field.typedname.getType()))
+        return st
 
     def _getRepr(self):
         extra = ["%s:" % self.name]
@@ -220,13 +227,11 @@ class Class(Node):
 
 class Field(Node):
     def init(self):
-        self.name = ""
         self.default = ""
         self.condition = NullNode()
 
     def set(self, nodes):
-        typedName = nodes.pop(0)
-        self.name = typedName.getDottedName()
+        self.typedname = nodes.pop(0)
         assert len(nodes) <= 2
         while len(nodes) > 0:
             arg = nodes.pop(0)
@@ -244,7 +249,7 @@ class Field(Node):
             default = "default:%s" % self.default
         if self.condition.type == "BoolExpr":
             cond = "cond:%s" % self.condition
-        return [self.name, default, cond]
+        return [self.typedname.getName(), default, cond]
 
 
 class FieldList(Node):
@@ -498,7 +503,7 @@ class Assignment(Statement):
         assert len(self.children) == 1
         assert isinstance(self.children[0], Expression)
         dataidx = self.children[0].compile(ctx)
-        ctx.register(self.typedName.getName(), dataidx)
+        ctx.register_var(self.typedName.getName(), dataidx)
         return -1
 
     def _getRepr(self):
@@ -572,7 +577,7 @@ class Print(Statement):
                 ctx.emit_WRITEO(ctx.STDOUT, dataidx)
                 if i < len(self.children) - 1:
                     if spacechr == -1:
-                        spacechr = ctx.pushobj(types.DInteger(32))
+                        spacechr = ctx.pushobj(types.DInteger.new_int(32))
                     ctx.emit_WRITEI(ctx.STDOUT, spacechr)
                 if self.add_newline:
                     ctx.emit_WRITENL(ctx.STDOUT)
@@ -603,7 +608,7 @@ class Integer(ConstValue):
         return ctx.pushobj(self.mkobj())
 
     def mkobj(self):
-        return types.DInteger(self._int)
+        return types.DInteger.new_int(self._int)
 
     def _getRepr(self):
         return [str(self._int)]
@@ -617,7 +622,7 @@ class Float(ConstValue):
         return ctx.pushobj(self.mkobj())
 
     def mkobj(self):
-        return types.DFloat(self._float)
+        return types.DFloat.new_float(self._float)
 
     def _getRepr(self):
         return [str(self._float)]
@@ -639,7 +644,7 @@ class String(ConstValue):
         return ctx.pushobj(self.mkobj())
 
     def mkobj(self):
-        return types.DString(self._str)
+        return types.DString.new_str(self._str)
 
     def _getRepr(self):
         return ['"%s"' % self._str]
@@ -676,8 +681,8 @@ class Call(Node):
             ctx.emit_LIST_ADD(arglistidx, argvalidx)
 
         # return value dest
-        funcnameidx = ctx.pushobj(types.DString(name))
-        retidx = ctx.pushobj(types.DInteger())
+        funcnameidx = ctx.pushobj(types.DString.new_str(name))
+        retidx = ctx.pushobj(types.DNull())
         ctx.emit_CALL(funcnameidx, arglistidx, retidx)
         return retidx
 
