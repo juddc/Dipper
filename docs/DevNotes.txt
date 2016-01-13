@@ -8,3 +8,7 @@ http://joshsharp.com.au/blog/view/rpython-rply-interpreter-1
 http://stackoverflow.com/questions/7161856/what-is-statically-typed-in-rpython
 http://morepypy.blogspot.com/2011/04/tutorial-writing-interpreter-with-pypy.html
 http://doc.pypy.org/en/release-1.9/rlib.html
+
+
+Maintaining constant-sized lists so RPython can optimize them:
+	https://mail.python.org/pipermail/pypy-dev/2011-June/007590.html

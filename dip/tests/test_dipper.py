@@ -6,19 +6,25 @@ from dip.typesystem import DNull, DBool, DInteger, DString, DList
 from dip.parser import DipperParser
 from dip.compiler import FrameCompiler
 from dip.interpreter import VirtualMachine
+from dip.namespace import Namespace
 
 
 class TestDipper(unittest.TestCase):
     def _execute_simple(self, code):
-        result = [None]
+        # set up the global namespace
+        globalns = Namespace("globals")
+        for node in DipperParser().parse(code):
+            if node.type == "Function":
+                globalns.add_func(node.name, FrameCompiler(node).mkfunc())
+            elif node.type == "Struct":
+                globalns.add_struct(node.name, node.mkstruct())
+        # set up a hacky way to extract data from the VM via a callback
+        result = [None] # we need a mutable object we can put data in
         def getresult(val):
             result[0] = val
-        vm = VirtualMachine([], getresult, debug=False)
-        parser = DipperParser()
-        tree = parser.parse(code)
-        for node in tree:
-            assert node.type == "Function"
-            vm.addfunc(FrameCompiler(node))
+        # set up the VM
+        vm = VirtualMachine([], cb=getresult, debug=False)
+        vm.setglobals(globalns)
         vm.run()
         return result[0]
 

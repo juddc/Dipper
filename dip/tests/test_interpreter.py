@@ -5,6 +5,7 @@ import unittest
 from dip.typesystem import DNull, DBool, DInteger, DString, DList
 from dip.compiler import BytecodeCompiler
 from dip.interpreter import VirtualMachine
+from dip.namespace import Namespace
 
 
 class TestInterpreter(unittest.TestCase):
@@ -14,8 +15,10 @@ class TestInterpreter(unittest.TestCase):
             result[0] = val
         vm = VirtualMachine([], getresult)
         ctx = BytecodeCompiler("main", code, data, argcount)
-        vm.addfunc(ctx)
-        vm.run()
+        globalns = Namespace("globals")
+        globalns.add_func("main", ctx.mkfunc())
+        vm.setglobals(globalns)
+        vm.run(pass_argv=False)
         return result[0]
 
     def test_add(self):
@@ -23,9 +26,9 @@ class TestInterpreter(unittest.TestCase):
             ADD        0      1      2       # 0
             RET        2                     # 1
         """, [
-            DInteger(32),  # data0
-            DInteger(64),  # data1
-            DInteger(),    # data2
+            DInteger.new_int(32),  # data0
+            DInteger.new_int(64),  # data1
+            DInteger(),            # data2
         ])
         self.assertEqual(result.int_py(), 96)
 
@@ -34,9 +37,9 @@ class TestInterpreter(unittest.TestCase):
             SUB        0      1      2       # 0
             RET        2                     # 1
         """, [
-            DInteger(64),  # data0
-            DInteger(32),  # data1
-            DInteger(),    # data2
+            DInteger.new_int(64),  # data0
+            DInteger.new_int(32),  # data1
+            DInteger(),            # data2
         ])
         self.assertEqual(result.int_py(), 32)
 
@@ -45,9 +48,9 @@ class TestInterpreter(unittest.TestCase):
             MUL        0      1      2       # 0
             RET        2                     # 1
         """, [
-            DInteger(64),  # data0
-            DInteger(32),  # data1
-            DInteger(),    # data2
+            DInteger.new_int(64),  # data0
+            DInteger.new_int(32),  # data1
+            DInteger(),            # data2
         ])
         self.assertEqual(result.int_py(), 2048)
 
@@ -56,9 +59,9 @@ class TestInterpreter(unittest.TestCase):
             DIV        0      1      2       # 0
             RET        2                     # 1
         """, [
-            DInteger(64),  # data0
-            DInteger(2),   # data1
-            DInteger(),    # data2
+            DInteger.new_int(64),  # data0
+            DInteger.new_int(2),   # data1
+            DInteger(),            # data2
         ])
         self.assertEqual(result.int_py(), 32)
 
@@ -68,8 +71,8 @@ class TestInterpreter(unittest.TestCase):
             RET        0                     # 1
             RET        1                     # 2
         """, [
-            DInteger(16),  # data0
-            DInteger(32),  # data1
+            DInteger.new_int(16),  # data0
+            DInteger.new_int(32),  # data1
         ])
         self.assertEqual(result.int_py(), 32)
 
@@ -78,8 +81,8 @@ class TestInterpreter(unittest.TestCase):
             LEN        0      1              # 0
             RET        1                     # 1
         """, [
-            DString("neat"),     # data0
-            DInteger(),          # data1
+            DString.new_str("neat"),     # data0
+            DInteger(),                  # data1
         ])
         self.assertEqual(result.int_py(), 4)
 
@@ -88,9 +91,9 @@ class TestInterpreter(unittest.TestCase):
             EQ         0      1      2        # 0
             RET        2                      # 1
         """, [
-            DInteger(4),  # data0
-            DInteger(5),  # data1
-            DNull(),      # data2
+            DInteger.new_int(4),  # data0
+            DInteger.new_int(5),  # data1
+            DNull(),              # data2
         ])
         self.assertEqual(result.int_py(), False)
 
@@ -98,9 +101,9 @@ class TestInterpreter(unittest.TestCase):
             EQ         0      1      2        # 0
             RET        2                      # 1
         """, [
-            DString("neat"),  # data0
-            DString("neat"),  # data1
-            DNull(),          # data2
+            DString.new_str("neat"),  # data0
+            DString.new_str("neat"),  # data1
+            DNull(),                  # data2
         ])
         self.assertEqual(result.int_py(), True)
 
@@ -112,10 +115,10 @@ class TestInterpreter(unittest.TestCase):
             LABEL      :some_label            # 3
             RET        3                      # 4
         """, [
-            DInteger(4),   # data0
-            DInteger(5),   # data1
-            DNull(),       # data2
-            DInteger(999), # data3
+            DInteger.new_int(4),   # data0
+            DInteger.new_int(5),   # data1
+            DNull(),               # data2
+            DInteger.new_int(999), # data3
         ])
         self.assertEqual(result.int_py(), 999)
 
@@ -133,15 +136,15 @@ class TestInterpreter(unittest.TestCase):
             EQ         6      7      8        # 8   data8 = (data6 == data7)
             RET        8                      # 9   return data8
         """, [
-            DNull(),       # data0, list
-            DInteger(5),   # data1, fake value to add to the list
-            DString("hi"), # data2, fake value to add to the list
-            DInteger(),    # data3, list length
-            DInteger(2),   # data4, list index
-            DInteger(3),   # data5, expected list length
-            DNull(),       # data6, comp1
-            DNull(),       # data7, comp2
-            DNull(),       # data8, output
+            DNull(),               # data0, list
+            DInteger.new_int(5),   # data1, fake value to add to the list
+            DString.new_str("hi"), # data2, fake value to add to the list
+            DInteger(),            # data3, list length
+            DInteger.new_int(2),   # data4, list index
+            DInteger.new_int(3),   # data5, expected list length
+            DNull(),               # data6, comp1
+            DNull(),               # data7, comp2
+            DNull(),               # data8, output
         ])
         self.assertEqual(result.int_py(), True)
 
