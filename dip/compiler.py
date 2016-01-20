@@ -3,26 +3,30 @@ Dipper bytecode compilers
 """
 from rpython.rlib.objectmodel import we_are_translated
 
-from interpreter import INSTRUCTION_SET, INST, INST_STRS, Frame, Stream
+from interpreter import Frame
+from bytecode import BytecodeAnnotation, INSTRUCTION_SET, INST, INST_STRS
+from basicio import Stream
+from namespace import Namespace
 import typesystem as types
 from common import CompileError
-
-
-INST_SET = set(INSTRUCTION_SET)
 
 
 class Compiler(object):
     """
     Abstract compiler interface
     """
-    def argcount(self):
-        """ Returns the number of arguments that this function requires """
-        return 0
+    def __init__(self, namespace=None):
+        if namespace is not None:
+            assert isinstance(namespace, Namespace)
+            self.namespace = namespace
+        else:
+            self.namespace = Namespace("unknown")
 
-    def mkframe(self, args):
-        """ Returns a frame with ALL UNIQUE POINTERS. Don't forget to copy stuff. """
-        assert type(args) is types.DList
-        return Frame([], [], {})
+    def mkfunc(self):
+        """
+        Returns a DFunc object representing the compiled function
+        """
+        return types.DFunc()
 
 
 class BytecodeCompiler(Compiler):
@@ -39,36 +43,26 @@ class BytecodeCompiler(Compiler):
         LABEL :if_block
 
     """
-    def __init__(self, name, code, data, argcount=0):
+    def __init__(self, name, code, data, namespace=None):
+        Compiler.__init__(self, namespace=namespace)
         self.name = name
         self.bytecode = self._parse(code)
         self.data = data
         self.vars = {}
-        self._argcount = argcount
-        if argcount > 0:
-            raise NotImplementedError("TODO: Implement arguments for testing raw bytecode")
-
-    def argcount(self):
-        return self._argcount
 
     def mkframe(self, args):
         if not we_are_translated():
             assert args is None or isinstance(args, types.DList)
         data = [ val.copy() if val is not None else None for val in self.data ]
-        return Frame(self.bytecode, data, self.vars.copy())
+        return Frame(self.name, self.bytecode, data, self.vars.copy())
 
     def mkfunc(self):
         """
         Returns a DFunc object representing the compiled function
         """
+        fn = types.DFunc.new_func(self.name, [], "int")
         funcargs = []
-        #i = 0
-        #for arg in self.astnode.args:
-        #    dataidx = self.argIdx[i]
-        #    funcargs.append((arg.getName(), arg.getFullType(), dataidx))
-        #    i += 1
-        fn = types.DFunc()
-        fn.setfuncdata(self.name, funcargs, self.bytecode, self.data, self.vars)
+        fn.set_code(self.bytecode, [], self.data, self.vars)
         return fn
 
     def _parse(self, code):
@@ -114,7 +108,9 @@ class FrameCompiler(Compiler):
     STDIN = Stream.STDIN
     STDERR = Stream.STDERR
 
-    def __init__(self, astnode):
+    def __init__(self, filename, astnode, namespace=None):
+        Compiler.__init__(self, namespace=namespace)
+
         if not we_are_translated():
             assert type(astnode.name) is str
 
@@ -123,11 +119,22 @@ class FrameCompiler(Compiler):
                 if not hasattr(self, "emit_%s" % inst):
                     raise AssertionError("FrameCompiler lacks a emit_%s() method" % inst)
 
+        # source filename
+        self.filename = filename
+
+        # root astnode we're compiling
         self.astnode = astnode
         
+        # name of the root ast node. usually the function name
         self.name = astnode.name
 
+        # actual bytecode storage
         self.bytecode = []
+
+        # bytecode annotations like source file and line number
+        self._current_node = None
+        self.bytecode_info = []
+
         self.data = []
         self.vars = {}
 
@@ -139,7 +146,7 @@ class FrameCompiler(Compiler):
 
         if astnode.type == "Function":
             for arg in astnode.args:
-                self.data.append(types.DNull())
+                self.data.append(types.AutoType(arg.getType())())
                 idx = len(self.data) - 1
                 self.argIdx.append(idx)
                 self.register_var(arg.getName(), idx)
@@ -151,19 +158,9 @@ class FrameCompiler(Compiler):
         Returns a DFunc object representing the compiled function
         """
         assert self.astnode.type == "Function"
-        funcargs = []
-        i = 0
-        for arg in self.astnode.args:
-            dataidx = self.argIdx[i]
-            funcargs.append((arg.getName(), arg.getFullType(), dataidx))
-            i += 1
-        fn = types.DFunc()
-        fn.setfuncdata(self.name, funcargs, self.bytecode, self.data, self.vars)
+        fn = self.astnode.mkprototype()
+        fn.set_code(self.bytecode, self.bytecode_info, self.data, self.vars)
         return fn
-
-    def argcount(self):
-        assert self.astnode.type == "Function"
-        return len(self.astnode.args)
 
     def pushobj(self, val):
         assert isinstance(val, types.DBase)
@@ -183,6 +180,8 @@ class FrameCompiler(Compiler):
         inst = vals[0]
         if inst in (INST['BT'], INST['BF']):
             vals[2] = newptr
+        elif inst in (INST['BNE'], INST['BEQ']):
+            vals[3] = newptr
         elif inst == INST['JMP']:
             vals[1] = newptr
         else:
@@ -205,8 +204,28 @@ class FrameCompiler(Compiler):
             assert type(name) is str
         self.vars[name] = dataidx
 
-    def emit(self, opcode, a=-1, b=-1, c=-1):
+    def is_int(self, dataidx):
+        """ Simple helper for typechecking data registers """
+        return isinstance(self.data[dataidx], types.DInteger)
+
+    def is_float(self, dataidx):
+        """ Simple helper for typechecking data registers """
+        return isinstance(self.data[dataidx], types.DFloat)
+
+    def is_str(self, dataidx):
+        """ Simple helper for typechecking data registers """
+        return isinstance(self.data[dataidx], types.DString)
+
+    def is_type(self, dataidx, datatype):
+        """ Simple helper for typechecking data registers """
+        return isinstance(self.data[dataidx], datatype)
+
+    def start_node(self, node):
+        self._current_node = node
+
+    def emit(self, opcode, a=-1, b=-1, c=-1, comment=""):
         self.bytecode.append( (INST[opcode], a, b, c) )
+        self.bytecode_info.append(BytecodeAnnotation(self.filename, self._current_node.source, comment=comment))
         # return the instruction pointer location for the emitted inst
         return self.currentptr()
 
@@ -214,10 +233,7 @@ class FrameCompiler(Compiler):
         return self.emit('PASS')
 
     def emit_LABEL(self, label):
-        return self.emit('LABEL')
-
-    def emit_LOAD(self, a, b, c):
-        return self.emit('LOAD', a, b, c)
+        return self.emit('LABEL', comment=label)
 
     def emit_BT(self, idx, ptr):
         return self.emit('BT', idx, ptr)
@@ -225,11 +241,11 @@ class FrameCompiler(Compiler):
     def emit_BF(self, idx, ptr):
         return self.emit('BF', idx, ptr)
 
-    def emit_BEQ(self, a, b, c):
-        return self.emit('BEQ', a, b, c)
+    def emit_BEQ(self, a, b, ptr):
+        return self.emit('BEQ', a, b, ptr)
 
-    def emit_BNE(self, a, b, c):
-        return self.emit('BNE', a, b, c)
+    def emit_BNE(self, a, b, ptr):
+        return self.emit('BNE', a, b, ptr)
 
     def emit_JMP(self, ptr):
         return self.emit('JMP', ptr)
@@ -237,8 +253,20 @@ class FrameCompiler(Compiler):
     def emit_RET(self, val=-1):
         return self.emit('RET', val)
 
-    def emit_SET(self, a, b, c):
-        return self.emit('SET', a, b, c)
+    def emit_SET(self, src, dest):
+        return self.emit('SET', src, dest)
+
+    def emit_ADDI(self, dataidx, val):
+        return self.emit('ADDI', dataidx, val)
+
+    def emit_SUBI(self, dataidx, val):
+        return self.emit('SUBI', dataidx, val)
+
+    def emit_MULI(self, dataidx, val):
+        return self.emit('MULI', dataidx, val)
+
+    def emit_DIVI(self, dataidx, val):
+        return self.emit('DIVI', dataidx, val)
 
     def emit_ADD(self, a, b, dest):
         return self.emit('ADD', a, b, dest)

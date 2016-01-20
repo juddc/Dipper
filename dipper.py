@@ -12,26 +12,9 @@ except ImportError:
     def we_are_translated():
         return False
 
-if we_are_translated():
-    from rpython.rlib.streamio import open_file_as_stream
-    from rpython.jit.codewriter.policy import JitPolicy
-
-from dip import parser, compiler, interpreter
-from dip.namespace import Namespace
-
-
-if we_are_translated():
-    def readfile(filename):
-        f = open_file_as_stream(filename)
-        data = f.readall()
-        f.close()
-        return data
-else:
-    def readfile(filename):
-        f = open(filename, 'r')
-        data = f.read()
-        f.close()
-        return data
+from dip import parser, compiler, interpreter, basicio
+from dip.errors import error_message, error_from_exception
+from dip.namespace import Module
 
 
 def main(argv):
@@ -75,7 +58,7 @@ def main(argv):
         return 1
 
     # read in the file contents
-    data = readfile(filename)
+    data = basicio.readall(filename)
 
     # create a parser
     dip = parser.DipperParser(debug=debug_parser)
@@ -88,7 +71,15 @@ def main(argv):
     if debug_parser > 0:
         print "============== parsing ================="
 
-    tree = dip.parse(data)
+    try:
+        tree = dip.parse(data, filename=filename)
+    except Exception as e:
+        print "Error parsing file '%s': %s" % (filename, str(e))
+        return 1
+
+    if tree is None:
+        print "Error parsing file '%s'" % filename
+        return 1
 
     if debug_parser:
         print ">>> AST <<<"
@@ -99,27 +90,30 @@ def main(argv):
 
     vm = interpreter.VirtualMachine(dip_args, debug=debug_interpreter)
 
-    globalns = Namespace("globals")
-
-    for node in tree:
-        if node.type == "Function":
-            ctx = compiler.FrameCompiler(node)
-            globalns.add_func(node.name, ctx.mkfunc())
-        elif node.type == "Struct":
-            structdef = node.mkstruct()
-            globalns.add_struct(node.name, structdef)
-        else:
-            raise ValueError("Unhandled top-level node type '%s'" % node.type)
+    mainmodule = Module.from_ast(filename, "main", tree)
 
     if debug_compiler:
-        print globalns.toString()
+        print mainmodule.toString()
+        for name, func in mainmodule.funcs.items():
+            print
+            print "___ Function '%s' ___" % name
+            print func.toString()
 
-    vm.setglobals(globalns)
+    vm.setglobals(mainmodule)
 
     if debug_parser or debug_compiler or debug_interpreter:
         print "============= executing ================"
 
-    vm.run()
+    try:
+        vm.run()
+
+    except interpreter.InterpreterError as e:
+        print error_message(filename, e.getsource(), e.getmessage())
+        return 1
+
+    except Exception as e:
+        print error_from_exception(filename, (-1, -1), e)
+        raise
 
     return 0
 
@@ -128,9 +122,12 @@ def target(driver, args):
     return main, None
 
 
-def jitpolicy(driver):
-    return JitPolicy()
-    
+if we_are_translated():
+    from rpython.jit.codewriter.policy import JitPolicy
+
+    def jitpolicy(driver):
+        return JitPolicy()
+
 
 # this only runs if the script is being run from a regular Python interpreter,
 # so just call the RPython main function

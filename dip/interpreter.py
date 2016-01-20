@@ -1,103 +1,59 @@
-import os
 from rpython.rlib import jit
 from rpython.rlib.objectmodel import we_are_translated
 
 import typesystem as types
 from typesystem import DBase, DNull, DInteger, DFloat, DString, DList
-
+from basicio import Stream
 
 jitdriver = jit.JitDriver(greens=['ptr', 'bytecode'], reds="auto")
 
+# make all the bytecode instructions constants in this module's namespace
+import bytecode
+from bytecode import INST_STRS
+for inst in bytecode.INSTRUCTION_SET:
+    globals()[inst] = bytecode.INST[inst]
 
-class Stream(object):
-    """
-    Class that emulates the standard Python sys.stdout/in/err only using
-    the ``os`` module.
-    """
-    STDIN = 0
-    STDOUT = 1
-    STDERR = 2
 
-    def __init__(self, stream):
-        self.stream = stream
+class InterpreterError(Exception):
+    def __init__(self, orig_exception, frame, message=""):
+        self.orig_exception = orig_exception
+        self.frame = frame
+        self.message = message
 
-    def write(self, val):
-        os.write(self.stream, val)
+    def getsource(self):
+        return self.frame.func.bytecode_info[self.frame.ptr].source
 
-    def read(self):
-        res = ""
-        while True:
-            buf = os.read(self.stream, 16)
-            if not buf:
-                return res
-            else:
-                res += buf
-        return os.read(self.stream, numbytes)
+    def getmessage(self):
+        bytecode = self.frame.bytecode[self.frame.ptr]
+        instline = "%s, %s, %s, %s" % (INST_STRS[bytecode[0]],
+            bytecode[1], bytecode[2], bytecode[3])
+        msg = ["Error in bytecode line %s (%s) in function %s:" % (
+            self.frame.ptr, instline, self.frame.func.name)]
 
-    def readline(self):
-        res = ""
-        while True:
-            buf = os.read(self.stream, 16)
-            if not buf:
-                return res
-            res += buf
-            if res[-1] == "\n":
-                return res[:-1]
+        msg.append("    %s: %s" % (self.orig_exception.__class__.__name__, str(self.orig_exception)))
+        
+        msg.append("")
+        msg.append("Frame:")
+        
+        for line in self.frame.toString().split("\n"):
+            msg.append(line)
 
-# VM instructions
-INSTRUCTION_SET = [
-    'PASS',
-    'LABEL',
-    'CALL',
-    'BT',
-    'BF',
-    'BEQ',
-    'BNE',
-    'JMP',
-    'RET',
-    'ADD',
-    'SUB',
-    'MUL',
-    'DIV',
-    'SQRT',
-    'LEN',
-    'EQ',
-    'NEQ',
-    'GT',
-    'LT',
-    'GTE',
-    'LTE',
-    'EXIT',
-    'WRITEI',
-    'WRITEO',
-    'WRITENL',
-    'LIST_NEW',
-    'LIST_ADD',
-    'LIST_REM',
-    'LIST_POP',
-]
+        if len(self.message) > 0:
+            msg.append(self.message)
 
-# dict of instructions to their int codes:
-INST = {}
-
-# reverse dict of strings to ints
-INST_STRS = {}
-
-for i, inst in enumerate(INSTRUCTION_SET):
-    globals()[inst] = i
-    INST[inst] = i
-    INST_STRS[i] = inst
+        return "\n".join(msg)
 
 
 class Frame(object):
-    def __init__(self, bytecode, data, varnames):
-        self.bytecode = bytecode
+    def __init__(self, func, dataregs):
+        self.func = func
 
+        # bytecode instructions
+        self.bytecode = func.bytecode
         # data registers
-        self.data = data
-
+        self.data = dataregs
         # variable names
-        self.vars = varnames
+        self.vars = func.vars.copy()
 
         if not we_are_translated():
             assert type(self.bytecode) is list
@@ -133,7 +89,10 @@ class Frame(object):
 
             instname = INST_STRS[inst]
             argnames = ", ".join(args)
-            bc.append("    %s : %s (%s)" % (i, instname, argnames))
+            comment = self.func.bytecode_info[i].comment
+            if len(comment) > 0:
+                comment = " # %s" % comment
+            bc.append("    %s : %s (%s)%s" % (i, instname, argnames, comment))
 
         data = []
         for i, obj in enumerate(self.data):
@@ -161,7 +120,8 @@ class VirtualMachine(object):
 
     def callstack_push(self, funcname, args):
         assert isinstance(args, DList)
-        self.callstack.append(Frame(*self.globals.get_func(funcname).mkframe(args)))
+        func = self.globals.get_func(funcname)
+        self.callstack.append(Frame(func, func.mkdatareg(args)))
 
     def run(self, pass_argv=True):
         debug = self.debug
@@ -185,206 +145,229 @@ class VirtualMachine(object):
             print "No main function, exiting"
             return
 
-        while True:
-            frame = self.callstack[-1]
+        # init the most important loop vars here so we can access them from outside
+        # the loop when something goes horribly wrong
+        frame = self.callstack[-1]
+        data = frame.data
 
-            jitdriver.jit_merge_point(ptr=frame.ptr, bytecode=frame.bytecode)
+        try:
+            while True:
+                frame = self.callstack[-1]
 
-            if len(frame.bytecode) == 0:
-                print "Got empty frame; exiting"
-                break
+                jitdriver.jit_merge_point(ptr=frame.ptr, bytecode=frame.bytecode)
 
-            data = frame.data
+                if len(frame.bytecode) == 0:
+                    print "Got empty frame; exiting"
+                    break
 
-            inst, a, b, c = frame.bytecode[frame.ptr]
+                data = frame.data
 
-            if inst == PASS or inst == LABEL:
-                if debug:
-                    print frame.ptr, INST_STRS[inst], a, b, c
-                frame.ptr += 1
                 inst, a, b, c = frame.bytecode[frame.ptr]
 
-            if debug:
-                print frame.ptr, INST_STRS[inst], a, b, c
-                for i, obj in enumerate(data):
-                    binding = ""
-                    if i in frame.vars_rev:
-                        binding = "(bound to: '%s')" % frame.vars_rev[i]
-                    print "    ", i, ":", obj.repr_py(), binding
-
-            if inst == JMP:
-                assert a >= 0 and a < len(frame.bytecode)
-                # give the JIT engine a hint that we're about to step backwards
-                if a < frame.ptr:
-                    jitdriver.can_enter_jit(ptr=frame.ptr, bytecode=frame.bytecode)
-                frame.ptr = a
-                continue
-
-            elif inst == ADD:
-                data[c] = data[a].operator('+', data[b])
-
-            elif inst == SUB:
-                data[c] = data[a].operator('-', data[b])
-
-            elif inst == MUL:
-                data[c] = data[a].operator('*', data[b])
-
-            elif inst == DIV:
-                data[c] = data[a].operator('/', data[b])
-
-            elif inst == SQRT:
-                data[b].assign_float(data[a].sqrt_py())
-
-            elif inst == LEN:
-                data[b].assign_int(data[a].len_py())
-
-            elif inst == EQ:
-                data[c] = data[a].operator('==', data[b])
-
-            elif inst == NEQ:
-                data[c] = data[a].operator('!=', data[b])
-
-            elif inst == GT:
-                data[c] = data[a].operator('>', data[b])
-
-            elif inst == LT:
-                data[c] = data[a].operator('<', data[b])
-
-            elif inst == GTE:
-                data[c] = data[a].operator('>=', data[b])
-
-            elif inst == LTE:
-                data[c] = data[a].operator('<=', data[b])
-
-            elif inst == CALL:
-                callable_name = data[a]
-                assert type(callable_name) is DString # func name
-                assert callable_name.len_py() > 0
-                assert isinstance(data[b], DList) # args
-                name = callable_name.str_py()
-
-                # calling a function
-                if self.globals.contains_func(name):
-                    frame.ret = c
-
-                    self.callstack_push(name, data[b])
-
-                    # guard against crazy
-                    if len(self.callstack) > 500000:
-                        print "Error: callstack size over 500,000"
-                        break
-                        #sys.exit(1)
-
+                if inst == PASS or inst == LABEL:
                     if debug:
-                        print "------- call %s ------- (stacksize: %s)" % (a, len(self.callstack))
-
-                # init'ing a struct
-                elif self.globals.contains_struct(name):
-                    inst = types.DStructInstance()
-                    inst.set_structdef(self.globals.get_struct(name))
-                    inst.assign_list(data[b])
-                    data[c] = inst
-
-                else:
-                    print "Error calling '%s': item cannot be found." % name
-                    break
-
-            elif inst == BT:
-                assert b >= 0 and b < len(frame.bytecode)
-                assert isinstance(data[a], DBase)
-                if data[a].bool_py() == True:
-                    frame.ptr = b
-                    continue
-
-            elif inst == BF:
-                assert b >= 0 and b < len(frame.bytecode)
-                assert isinstance(data[a], DBase)
-                if data[a].bool_py() == False:
-                    frame.ptr = b
-                    continue
-
-            elif inst == BNE:
-                assert c >= 0 and c < len(frame.bytecode)
-                assert isinstance(data[a], DBase)
-                if data[a].operator('!=', data[b]):
-                    frame.ptr = c
-                    continue
-
-            elif inst == BEQ:
-                assert c >= 0 and c < len(frame.bytecode)
-                assert isinstance(data[a], DBase)
-                if data[a].operator('==', data[b]):
-                    frame.ptr = c
-                    continue
-
-            elif inst == WRITEI:
-                assert type(data[b]) is DInteger
-                intval = data[b].int_py()
-                if not we_are_translated():
-                    assert type(intval) is int
-                frame.streams[a].write(chr(intval))
-
-            elif inst == WRITEO:
-                frame.streams[a].write(data[b].str_py())
-
-            elif inst == WRITENL:
-                frame.streams[a].write("\n")
-
-            elif inst == RET:
-                self.callstack.pop(-1)
-                if len(self.callstack) == 0:
-                    if debug:
-                        print "Exit: return called from main"
-                    if self.cb is not None:
-                        self.cb(data[a])
-                    break
-                nextframe = self.callstack[-1]
-
-                assert isinstance(data[a], DBase)
-
-                # if we have a return value, let the next frame know about it
-                if a >= 0:
-                    nextframe.data[nextframe.ret] = data[a]
-
-                # otherwise return null
-                else:
-                    nextframe.data[nextframe.ret] = null
+                        print frame.ptr, INST_STRS[inst], a, b, c
+                    frame.ptr += 1
+                    inst, a, b, c = frame.bytecode[frame.ptr]
 
                 if debug:
-                    print "------- return ------- (stacksize: %s)" % len(self.callstack)
-                continue
+                    print frame.ptr, INST_STRS[inst], a, b, c
+                    for i, obj in enumerate(data):
+                        binding = ""
+                        if i in frame.vars_rev:
+                            binding = "(bound to: '%s')" % frame.vars_rev[i]
+                        print "    ", i, ":", obj.repr_py(), binding
 
-            elif inst == EXIT:
-                print "Exit: syscall"
-                assert type(data[a]) is DInteger
-                break
-                #sys.exit(data[a].val)
+                if inst == JMP:
+                    assert a >= 0 and a < len(frame.bytecode)
+                    # give the JIT engine a hint that we're about to step backwards
+                    if a < frame.ptr:
+                        jitdriver.can_enter_jit(ptr=frame.ptr, bytecode=frame.bytecode)
+                    frame.ptr = a
+                    continue
 
-            elif inst == LIST_NEW:
-                data[a] = DList()
+                # SET instruction:
+                #   Sets a value from another value
+                #
+                #   Arguments:
+                #   a = dataidx of source value
+                #   b = dataidx of dest value
+                elif inst == SET:
+                    if isinstance(data[b], types.DInteger):
+                        data[b].assign_int(data[a].int_py())
+                    elif isinstance(data[b], types.DBool):
+                        data[b].assign_bool(data[a].bool_py())
+                    elif isinstance(data[b], types.DFloat):
+                        data[b].assign_float(data[a].float_py())
+                    elif isinstance(data[b], types.DString):
+                        data[b].assign_str(data[a].str_py())
+                    else:
+                        raise TypeError(INST_STRS[inst])
 
-            elif inst == LIST_ADD:
-                assert type(data[a]) is DList
-                assert isinstance(data[b], DBase)
-                data[a].append(data[b])
+                # ___I instructions:
+                #   Adds a hardcoded integer value to a data register in-place
+                #
+                #   Arguments:
+                #   a = dataidx of var to increment
+                #   b = integer value to increment with
+                elif inst == ADDI:
+                    data[a].assign_int(data[a].int_py() + b)
+                elif inst == SUBI:
+                    data[a].assign_int(data[a].int_py() - b)
+                elif inst == MULI:
+                    data[a].assign_int(data[a].int_py() * b)
+                elif inst == DIVI:
+                    data[a].assign_int(data[a].int_py() // b)
 
-            elif inst == LIST_REM:
-                assert type(data[a]) is DList
-                assert isinstance(data[b], DBase)
-                data[a].pop(data[b])
+                elif inst in (ADD, SUB, MUL, DIV):
+                    if isinstance(data[c], types.DInteger):
+                        data[c].assign_int(data[a].operator_int(bytecode.OPERATOR_MAP[inst], data[b]))
+                    elif isinstance(data[c], types.DFloat):
+                        data[c].assign_float(data[a].operator_float(bytecode.OPERATOR_MAP[inst], data[b]))
+                    elif isinstance(data[c], types.DString):
+                        data[c].assign_str(data[a].operator_str(bytecode.OPERATOR_MAP[inst], data[b]))
+                    else:
+                        raise TypeError(INST_STRS[inst])
 
-            elif inst == LIST_POP:
-                assert type(data[a]) is DList
-                assert isinstance(data[b], DBase)
-                data[c] = data[a].pop(data[b])
+                elif inst == SQRT:
+                    data[b].assign_float(data[a].sqrt_py())
 
-            frame.ptr += 1
+                elif inst == LEN:
+                    data[b].assign_int(data[a].len_py())
 
+                elif inst in (EQ, NEQ, GT, LT, GTE, LTE):
+                    data[c].assign_bool(data[a].operator_bool(bytecode.OPERATOR_MAP[inst], data[b]))
 
-def execute(code, data=None):
-    vm = VirtualMachine()
-    bytecode = parseBytecodeString(code)
-    frame = Frame(bytecode, data, {})
-    vm.push(frame)
-    vm.run()
+                elif inst == CALL:
+                    callable_name = data[a]
+                    assert type(callable_name) is DString # func name
+                    assert callable_name.len_py() > 0
+                    assert isinstance(data[b], DList) # args
+                    name = callable_name.str_py()
+
+                    # calling a function
+                    if self.globals.contains_func(name):
+                        frame.ret = c
+
+                        self.callstack_push(name, data[b])
+
+                        # guard against crazy
+                        if len(self.callstack) > 500000:
+                            print "Error: callstack size over 500,000"
+                            break
+                            #sys.exit(1)
+
+                        if debug:
+                            print "------- call %s ------- (stacksize: %s)" % (a, len(self.callstack))
+
+                    # init'ing a struct
+                    elif self.globals.contains_struct(name):
+                        assert isinstance(data[c], types.DStructInstance)
+                        assert data[c].structdef == self.globals.get_struct(name)
+                        data[c].assign_list(data[b])
+
+                    else:
+                        print "Error calling '%s': item cannot be found." % name
+                        break
+
+                elif inst == BT:
+                    assert b >= 0 and b < len(frame.bytecode)
+                    assert isinstance(data[a], DBase)
+                    if data[a].bool_py() == True:
+                        frame.ptr = b
+                        continue
+
+                elif inst == BF:
+                    assert b >= 0 and b < len(frame.bytecode)
+                    assert isinstance(data[a], DBase)
+                    if data[a].bool_py() == False:
+                        frame.ptr = b
+                        continue
+
+                elif inst == BNE:
+                    assert c >= 0 and c < len(frame.bytecode)
+                    assert isinstance(data[a], DBase)
+                    if data[a].operator_bool('!=', data[b]):
+                        frame.ptr = c
+                        continue
+
+                elif inst == BEQ:
+                    assert c >= 0 and c < len(frame.bytecode)
+                    assert isinstance(data[a], DBase)
+                    if data[a].operator_bool('==', data[b]):
+                        frame.ptr = c
+                        continue
+
+                elif inst == WRITEI:
+                    assert type(data[b]) is DInteger
+                    intval = data[b].int_py()
+                    if not we_are_translated():
+                        assert type(intval) is int
+                    frame.streams[a].write(chr(intval))
+
+                elif inst == WRITEO:
+                    frame.streams[a].write(data[b].str_py())
+
+                elif inst == WRITENL:
+                    frame.streams[a].write("\n")
+
+                elif inst == RET:
+                    self.callstack.pop(-1)
+                    if len(self.callstack) == 0:
+                        if debug:
+                            print "Exit: return called from main"
+                        if self.cb is not None:
+                            self.cb(data[a])
+                        break
+                    nextframe = self.callstack[-1]
+
+                    assert isinstance(data[a], DBase)
+
+                    # if we have a return value, let the next frame know about it
+                    if a >= 0:
+                        nextframe.data[nextframe.ret] = data[a]
+
+                    # otherwise return null
+                    else:
+                        nextframe.data[nextframe.ret] = null
+
+                    if debug:
+                        print "------- return ------- (stacksize: %s)" % len(self.callstack)
+                    continue
+
+                elif inst == EXIT:
+                    print "Exit: syscall"
+                    assert type(data[a]) is DInteger
+                    break
+                    #sys.exit(data[a].val)
+
+                elif inst == LIST_NEW:
+                    data[a] = DList()
+
+                elif inst == LIST_ADD:
+                    assert type(data[a]) is DList
+                    assert isinstance(data[b], DBase)
+                    data[a].append(data[b])
+
+                elif inst == LIST_REM:
+                    assert type(data[a]) is DList
+                    assert isinstance(data[b], DBase)
+                    data[a].pop(data[b])
+
+                elif inst == LIST_POP:
+                    assert type(data[a]) is DList
+                    assert isinstance(data[b], DBase)
+                    data[c] = data[a].pop(data[b])
+
+                frame.ptr += 1
+
+        except Exception as e:
+            if not we_are_translated():
+                import traceback
+                traceback.print_exc()
+
+            if self.cb is None:
+                raise InterpreterError(e, frame)
+            else:
+                raise
 

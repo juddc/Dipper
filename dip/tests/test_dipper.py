@@ -6,30 +6,25 @@ from dip.typesystem import DNull, DBool, DInteger, DString, DList
 from dip.parser import DipperParser
 from dip.compiler import FrameCompiler
 from dip.interpreter import VirtualMachine
-from dip.namespace import Namespace
+from dip.namespace import Module
 
 
 class TestDipper(unittest.TestCase):
-    def _execute_simple(self, code):
-        # set up the global namespace
-        globalns = Namespace("globals")
-        for node in DipperParser().parse(code):
-            if node.type == "Function":
-                globalns.add_func(node.name, FrameCompiler(node).mkfunc())
-            elif node.type == "Struct":
-                globalns.add_struct(node.name, node.mkstruct())
+    def _execute_simple(self, caller, code):
+        mainmodule = Module.from_ast("<%s>" % caller, "main", DipperParser().parse(code))
+
         # set up a hacky way to extract data from the VM via a callback
         result = [None] # we need a mutable object we can put data in
         def getresult(val):
             result[0] = val
         # set up the VM
         vm = VirtualMachine([], cb=getresult, debug=False)
-        vm.setglobals(globalns)
+        vm.setglobals(mainmodule)
         vm.run()
         return result[0]
 
     def test_simple(self):
-        result = self._execute_simple("""
+        result = self._execute_simple("test_simple", """
         fn main() {
             return 0
         }
@@ -38,7 +33,7 @@ class TestDipper(unittest.TestCase):
 
 
     def test_add_consts(self):
-        result = self._execute_simple("""
+        result = self._execute_simple("test_add_consts", """
         fn main() {
             return 5 + 5
         }
@@ -47,7 +42,7 @@ class TestDipper(unittest.TestCase):
 
 
     def test_add_vars(self):
-        result = self._execute_simple("""
+        result = self._execute_simple("test_add_vars", """
         fn main() {
             x = 5
             y = 5
@@ -58,7 +53,7 @@ class TestDipper(unittest.TestCase):
 
 
     def test_sub_consts(self):
-        result = self._execute_simple("""
+        result = self._execute_simple("test_sub_consts", """
         fn main() {
             return 5 - 4
         }
@@ -67,7 +62,7 @@ class TestDipper(unittest.TestCase):
 
 
     def test_sub_vars(self):
-        result = self._execute_simple("""
+        result = self._execute_simple("test_sub_vars", """
         fn main() {
             x = 5
             y = 4
@@ -78,7 +73,7 @@ class TestDipper(unittest.TestCase):
 
 
     def test_mul_consts(self):
-        result = self._execute_simple("""
+        result = self._execute_simple("test_mul_consts", """
         fn main() {
             return 2 * 3
         }
@@ -87,7 +82,7 @@ class TestDipper(unittest.TestCase):
 
 
     def test_mul_vars(self):
-        result = self._execute_simple("""
+        result = self._execute_simple("test_mul_vars", """
         fn main() {
             x = 2
             y = 3
@@ -98,7 +93,7 @@ class TestDipper(unittest.TestCase):
 
 
     def test_div_consts(self):
-        result = self._execute_simple("""
+        result = self._execute_simple("test_div_consts", """
         fn main() {
             return 6 / 3
         }
@@ -107,7 +102,7 @@ class TestDipper(unittest.TestCase):
 
 
     def test_div_vars(self):
-        result = self._execute_simple("""
+        result = self._execute_simple("test_div_vars", """
         fn main() {
             x = 6
             y = 3
@@ -118,7 +113,7 @@ class TestDipper(unittest.TestCase):
 
 
     def test_sqrt_int(self):
-        result = self._execute_simple("""
+        result = self._execute_simple("test_sqrt_int", """
         fn main() {
             x : int = 4
             return sqrt(x)
@@ -128,7 +123,7 @@ class TestDipper(unittest.TestCase):
 
 
     def test_sqrt_float(self):
-        result = self._execute_simple("""
+        result = self._execute_simple("test_sqrt_float", """
         fn main() {
             x : float = 4.0
             return sqrt(x)
@@ -137,7 +132,7 @@ class TestDipper(unittest.TestCase):
         self.assertEqual(result.float_py(), 2.0)
 
     def test_eq(self):
-        result = self._execute_simple("""
+        result = self._execute_simple("test_eq", """
         fn main() {
             x = 4
             return 4 == x
@@ -147,7 +142,7 @@ class TestDipper(unittest.TestCase):
 
 
     def test_neq(self):
-        result = self._execute_simple("""
+        result = self._execute_simple("test_neq", """
         fn main() {
             x = 4
             return 4 != x
@@ -157,7 +152,7 @@ class TestDipper(unittest.TestCase):
 
 
     def test_strings(self):
-        result = self._execute_simple("""
+        result = self._execute_simple("test_strings", """
         fn main() {
             x = "a"
             return x + "b"
@@ -165,7 +160,8 @@ class TestDipper(unittest.TestCase):
         """)
         self.assertEqual(result.str_py(), "ab")
 
-        result = self._execute_simple("""
+    def test_strings2(self):
+        result = self._execute_simple("test_strings2", """
         fn main() {
             x = "abcd"
             return len(x) == 4
@@ -173,7 +169,8 @@ class TestDipper(unittest.TestCase):
         """)
         self.assertEqual(result.bool_py(), True)
 
-        result = self._execute_simple("""
+    def test_strings3(self):
+        result = self._execute_simple("test_strings3", """
         fn main() {
             x = "abcd"
             return len(x + "zzzz") == 8
@@ -183,7 +180,7 @@ class TestDipper(unittest.TestCase):
 
 
     def test_if(self):
-        result = self._execute_simple("""
+        result = self._execute_simple("test_if", """
         fn main() {
             x = 10
             if x > 20 {
@@ -198,7 +195,7 @@ class TestDipper(unittest.TestCase):
 
 
     def test_elif(self):
-        result = self._execute_simple("""
+        result = self._execute_simple("test_elif", """
         fn main() {
             x = 10
             if x > 20 {
@@ -222,8 +219,8 @@ class TestDipper(unittest.TestCase):
 
 
     def test_func(self):
-        result = self._execute_simple("""
-        fn add(x, y) {
+        result = self._execute_simple("test_func", """
+        fn add(x : int, y : int) -> int {
             return x + y
         }
         fn main() {
@@ -234,8 +231,8 @@ class TestDipper(unittest.TestCase):
 
 
     def test_recursion(self):
-        result = self._execute_simple("""
-        fn fib(n) {
+        result = self._execute_simple("test_recursion", """
+        fn fib(n : int) -> int {
             if n < 2 { return n }
             return fib(n - 2) + fib(n - 1)
         }
@@ -246,23 +243,22 @@ class TestDipper(unittest.TestCase):
         self.assertEqual(result.int_py(), 55)
 
 
-    # TODO: implement for loops
-    #def test_for_loop(self):
-    #    result = self._execute_simple("""
-    #    fn main() {
-    #        x = 10
-    #        for i in 0..10 {
-    #            x += 1
-    #        }
-    #        return x
-    #    }
-    #    """)
-    #    self.assertEqual(result.int_py(), 20)
+    def test_for_loop(self):
+        result = self._execute_simple("test_for_loop", """
+        fn main() {
+            x = 10
+            for i in 0..10 {
+                x += 1
+            }
+            return x
+        }
+        """)
+        self.assertEqual(result.int_py(), 20)
 
 
     # TODO: implement while loops
     #def test_for_loop(self):
-    #    result = self._execute_simple("""
+    #    result = self._execute_simple("test_for_loop", """
     #    fn main() {
     #        x = 10
     #        while x < 20 {
@@ -275,7 +271,7 @@ class TestDipper(unittest.TestCase):
 
 
     def test_docstrings(self):
-        result = self._execute_simple("""
+        result = self._execute_simple("test_docstrings", """
         fn main() {
             | "this is a docstring of sorts"
             | "this is also a docstring"
@@ -288,13 +284,13 @@ class TestDipper(unittest.TestCase):
 
 
     def test_goofy_syntax(self):
-        result = self._execute_simple("""
-        fn add1(x : int, y : int) {
+        result = self._execute_simple("test_goofy_syntax", """
+        fn add1(x : int, y : int) -> int {
             result : int = x
             x += y
             return result
         }
-        fn !add2(x, y) { return add1(x, y) }
+        fn !add2(x : int , y : int) -> int { return add1(x, y) }
         fn main() {
             return !add2(2, 2)
         }
@@ -304,7 +300,7 @@ class TestDipper(unittest.TestCase):
 
     # TODO: implement if expressions
     #def test_if_expressions(self):
-    #    result = self._execute_simple("""
+    #    result = self._execute_simple("test_if_expressions", """
     #    fn main() {
     #        x = 10
     #        x += 2

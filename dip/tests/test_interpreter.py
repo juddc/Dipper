@@ -9,14 +9,14 @@ from dip.namespace import Namespace
 
 
 class TestInterpreter(unittest.TestCase):
-    def _execute_simple(self, code, data, argcount=0):
+    def _execute_simple(self, code, data):
         result = [None]
         def getresult(val):
             result[0] = val
         vm = VirtualMachine([], getresult)
-        ctx = BytecodeCompiler("main", code, data, argcount)
         globalns = Namespace("globals")
-        globalns.add_func("main", ctx.mkfunc())
+        ctx = BytecodeCompiler("main", code, data, namespace=globalns)
+        globalns.set_func("main", ctx.mkfunc())
         vm.setglobals(globalns)
         vm.run(pass_argv=False)
         return result[0]
@@ -93,7 +93,7 @@ class TestInterpreter(unittest.TestCase):
         """, [
             DInteger.new_int(4),  # data0
             DInteger.new_int(5),  # data1
-            DNull(),              # data2
+            DBool(),              # data2
         ])
         self.assertEqual(result.int_py(), False)
 
@@ -103,7 +103,7 @@ class TestInterpreter(unittest.TestCase):
         """, [
             DString.new_str("neat"),  # data0
             DString.new_str("neat"),  # data1
-            DNull(),                  # data2
+            DBool(),                  # data2
         ])
         self.assertEqual(result.int_py(), True)
 
@@ -117,7 +117,7 @@ class TestInterpreter(unittest.TestCase):
         """, [
             DInteger.new_int(4),   # data0
             DInteger.new_int(5),   # data1
-            DNull(),               # data2
+            DBool(),               # data2
             DInteger.new_int(999), # data3
         ])
         self.assertEqual(result.int_py(), 999)
@@ -136,15 +136,15 @@ class TestInterpreter(unittest.TestCase):
             EQ         6      7      8        # 8   data8 = (data6 == data7)
             RET        8                      # 9   return data8
         """, [
-            DNull(),               # data0, list
+            DList(),               # data0, list
             DInteger.new_int(5),   # data1, fake value to add to the list
             DString.new_str("hi"), # data2, fake value to add to the list
             DInteger(),            # data3, list length
             DInteger.new_int(2),   # data4, list index
             DInteger.new_int(3),   # data5, expected list length
-            DNull(),               # data6, comp1
-            DNull(),               # data7, comp2
-            DNull(),               # data8, output
+            DBool(),               # data6, comp1
+            DBool(),               # data7, comp2
+            DBool(),               # data8, output
         ])
         self.assertEqual(result.int_py(), True)
 

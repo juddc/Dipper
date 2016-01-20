@@ -8,7 +8,7 @@ import typesystem as types
 import py
 
 from dip.builtins import has_builtin, get_builtin
-from dip.interpreter import INST
+from dip.bytecode import INST
 from dip.common import CompileError
 
 
@@ -29,12 +29,13 @@ def infix_to_prefix(tokens):
 class Node(object):
     name = ""
 
-    def __init__(self, data=""):
+    def __init__(self, data="", source=(-1, -1)):
         if not we_are_translated():
             assert type(data) is str
         self.children = []
         self.doc = []
         self.data = data
+        self.source = source # source pos from the file. a 2-tuple of ints represnting (line, column)
         self.init()
 
     def init(self):
@@ -80,6 +81,7 @@ class Node(object):
             yield item
 
     def compile(self, ctx):
+        ctx.start_node(self)
         return -1
 
     def __iter__(self):
@@ -151,7 +153,7 @@ class Function(Node):
         # so we can always assume its there.
         if self.name == "main" and len(self.args.children) == 0:
             argv = TypedName()
-            argv.set([Name("argv"), Name("[str]")])
+            argv.set([Name("argv"), Name("list")])
             self.args.children.append(argv)
 
         if len(nodes) > 0 and nodes[0].type in ("Name", "DottedName"):
@@ -164,11 +166,20 @@ class Function(Node):
                 self.children.append(node)
 
     def compile(self, ctx):
+        Node.compile(self, ctx)
         for node in self.children:
             node.compile(ctx)
         if len(ctx.bytecode) == 0 or ctx.bytecode[-1][0] != INST['RET']:
             ctx.emit_RET()
         return -1
+
+    def mkprototype(self):
+        """
+        Returns an incomplete (without code or data registers) function object.
+        Call DFunc.set_code to make it a complete function.
+        """
+        funcargs = [ (arg.getName(), arg.getFullType()) for arg in self.args ]
+        return types.DFunc.new_func(self.name, funcargs, self.returnType.getFullName())
 
     def _getRepr(self):
         extra = [self.name]
@@ -188,10 +199,8 @@ class Struct(Node):
     def mkstruct(self):
         st = types.StructDef(self.name, len(self.children))
         for field in self.children:
-            ftype = field.typedname.getType()
-            st.setfield(
-                field.typedname.getName(),
-                types.nameToType(field.typedname.getType()))
+            fieldinfo = field.typedname
+            st.setfield(fieldinfo.getName(), types.AutoType(fieldinfo.getType()))
         return st
 
     def _getRepr(self):
@@ -263,6 +272,7 @@ class FuncArgs(Node):
 
 class Block(Node):
     def compile(self, ctx):
+        Node.compile(self, ctx)
         for node in self:
             node.compile(ctx)
         return -1
@@ -287,10 +297,14 @@ class If(Block):
             self.children.append(b)
 
     def compile(self, ctx):
+        Node.compile(self, ctx)
         ctx.emit_LABEL("%s %s" % (self.type, self.toString()))
 
         boolidx = self.expr.compile(ctx)
-        top_jmp = ctx.emit_BF(boolidx, 999)
+
+        # jump to an intentionally invalid place because we're going to rewrite this
+        # with setbranch once we know where to go
+        top_jmp = ctx.emit_BF(boolidx, -1)
 
         # keep track of all jump-to-end instructions so we can fix them up later
         jumpend = []
@@ -301,6 +315,8 @@ class If(Block):
             if block.type == "Elif":
                 start_ptr = ctx.emit_LABEL("Elif %s" % block.toString())
                 boolidx = block.expr.compile(ctx)
+
+                # jump to an intentionally invalid place because we're going to rewrite it in a bit
                 start_jmp = ctx.emit_BF(boolidx, -1)
 
                 # rewrite the previous branch instruction to point towards the top of this one
@@ -320,7 +336,7 @@ class If(Block):
 
             # no need to jump if there are no blocks after this one
             if i < len(self) - 1:
-                # jump to the end of all the blocks
+                # jump to the end of all the blocks (intentionally invalid, will rewrite)
                 jmp_ptr = ctx.emit_JMP(-1)
                 # mark this jump as needing a rewrite after we know where the bottom is
                 jumpend.append(jmp_ptr)
@@ -359,13 +375,56 @@ class Else(Block):
         return []
 
 
+class ForLoop(Block):
+    def set(self, nodes):
+        assert len(nodes) == 3
+        self.loopvar = nodes.pop(0).data
+        self.expr = nodes.pop(0)
+
+        if not isinstance(self.expr, RangeExpr):
+            raise NotImplementedError("For loops only support range expressions right now")
+
+        block = nodes.pop(0)
+        for node in block:
+            self.children.append(node)
+
+    def compile(self, ctx):
+        assert isinstance(self.expr, RangeExpr)
+        self.expr.compile(ctx)
+        startval_idx = self.expr.start_idx
+        endval_idx = self.expr.end_idx
+        assert startval_idx > -1 and endval_idx > -1
+
+        loopval_idx = ctx.pushobj(types.DInteger())
+        ctx.register_var(self.loopvar, loopval_idx)
+        ctx.emit_SET(startval_idx, loopval_idx)
+
+        top_idx = ctx.emit_LABEL("For loop start")
+        
+        for child in self.children:
+            child.compile(ctx)
+
+        # increment the loop counter
+        ctx.emit_ADDI(loopval_idx, 1)
+
+        # if the loop counter is equal to the end value, keep going in the bytecode.
+        # otherwise jump backwards to the top of the loop
+        ctx.emit_BNE(loopval_idx, endval_idx, top_idx)
+        
+        return -1
+
+    def _getRepr(self):
+        return [ "%s in %s" % (self.loopvar, self.expr.toString()) ]
+
+
 class Expression(Node):
     def compile(self, ctx):
         """
         Generates bytecode to eval an expression, then returns the data index
-        of the resulting data object.
+        of the resulting data object. (implemented in subclasses)
         """
         raise NotImplementedError("%s.compile(ctx)" % self.type)
+        Node.compile(self, ctx)
         return -1
 
     def _getRepr(self):
@@ -388,6 +447,7 @@ class SimpleExpr(Expression):
 class IfExpr(Expression):
     def compile(self, ctx):
         raise NotImplementedError("If expressions")
+        Node.compile(self, ctx)
         return -1
 
 
@@ -396,7 +456,24 @@ class MatchExpr(Expression):
 
 
 class RangeExpr(Expression):
-    pass
+    def init(self):
+        self.start_idx = -1
+        self.end_idx = -1
+
+    def set(self, nodes):
+        assert len(nodes) == 2
+        self._leftnode = nodes.pop(0)
+        self._rightnode = nodes.pop(0)
+
+    def compile(self, ctx):
+        self.start_idx = self._leftnode.compile(ctx)
+        self.end_idx = self._rightnode.compile(ctx)
+        if not (ctx.is_int(self.start_idx) and ctx.is_int(self.end_idx)):
+            raise NotImplementedError("Ranges must be integers")
+        return self.start_idx
+
+    def _getRepr(self):
+        return [self._leftnode.toString(), self._rightnode.toString()]
 
 
 class ArithExpr(Expression):
@@ -416,6 +493,7 @@ class ArithExpr(Expression):
     }
 
     def compile(self, ctx):
+        Node.compile(self, ctx)
         if len(self.children) == 1:
             return self.children[0].compile(ctx)
         elif len(self.children) == 3:
@@ -425,13 +503,51 @@ class ArithExpr(Expression):
 
             # if both values are actually constants, we can do this operation at compile-time
             if isinstance(a, ConstValue) and isinstance(b, ConstValue):
-                return ctx.pushobj(a.mkobj().operator(op.data, b.mkobj()))
+                if op.data in ("==", "!=", "<", ">", "<=", ">="):
+                    result = a.mkobj().operator_bool(op.data, b.mkobj())
+                    return ctx.pushobj(types.DBool.new_bool(result))
+
+                elif isinstance(a, Float) or isinstance(b, Float):
+                    result = a.mkobj().operator_float(op.data, b.mkobj())
+                    return ctx.pushobj(types.DFloat.new_float(result))
+
+                elif isinstance(a, Integer) and isinstance(b, Integer):
+                    result = a.mkobj().operator_int(op.data, b.mkobj())
+                    return ctx.pushobj(types.DInteger.new_int(result))
+
+                elif isinstance(a, String):
+                    result = a.mkobj().operator_str(op.data, b.mkobj())
+                    return ctx.pushobj(types.DString.new_str(result))
+
+                else:
+                    raise NotImplementedError("ArithExpr with types (%s, %s) and op '%s'" % (
+                        a.__class__.__name__, b.__class__.__name__, op.data))
 
             # otherwise emit bytecode to do this operation at run-time
             else:
                 a_idx = a.compile(ctx)
                 b_idx = b.compile(ctx)
-                c_idx = ctx.pushobj(types.DInteger())
+
+                a_data = ctx.data[a_idx]
+                b_data = ctx.data[b_idx]
+
+                if op.data in ("==", "!=", "<", ">", "<=", ">="):
+                    c_idx = ctx.pushobj(types.DBool())
+
+                elif isinstance(a_data, types.DFloat) or isinstance(b_data, types.DFloat):
+                    c_idx = ctx.pushobj(types.DFloat())
+
+                elif isinstance(a_data, types.DInteger) and isinstance(b_data, types.DInteger):
+                    c_idx = ctx.pushobj(types.DInteger())
+
+                elif isinstance(a_data, types.DString):
+                    c_idx = ctx.pushobj(types.DString())
+
+                else:
+                    raise NotImplementedError("ArithExpr with types (%s, %s) and op '%s'" % (
+                        a_data.__class__.__name__, b_data.__class__.__name__, op.data))
+
+                #c_idx = ctx.pushobj(types.DInteger())
                 ctx.emit(self.ops[op.data], a_idx, b_idx, c_idx)
                 return c_idx
 
@@ -450,6 +566,7 @@ class BoolExpr(Expression):
     }
 
     def compile(self, ctx):
+        Node.compile(self, ctx)
         if len(self.children) == 1:
             return self.children[0].compile(ctx)
         elif len(self.children) == 3:
@@ -457,11 +574,12 @@ class BoolExpr(Expression):
             a = self.children[0]
             b = self.children[2]
             if isinstance(a, ConstValue) and isinstance(b, ConstValue):
-                return ctx.pushobj(a.mkobj().operator(op.data, b.mkobj()))
+                result = a.mkobj().operator_bool(op.data, b.mkobj())
+                return ctx.pushobj(types.DBool.new_bool(result))
             else:
                 a_idx = a.compile(ctx)
                 b_idx = b.compile(ctx)
-                result_idx = ctx.pushobj(types.DNull())
+                result_idx = ctx.pushobj(types.DBool())
                 if op.data not in self.ops:
                     raise NotImplementedError("BoolExpr operator '%s'" % op.data)
                 ctx.emit(self.ops[op.data], a_idx, b_idx, result_idx)
@@ -477,6 +595,7 @@ class Statement(Node):
 
 class CallStatement(Statement):
     def compile(self, ctx):
+        Node.compile(self, ctx)
         assert len(self.children) == 1
         assert self.children[0].type == "Call"
         self.children[0].compile(ctx)
@@ -500,6 +619,7 @@ class Assignment(Statement):
         self.children.append(expr)
 
     def compile(self, ctx):
+        Node.compile(self, ctx)
         assert len(self.children) == 1
         assert isinstance(self.children[0], Expression)
         dataidx = self.children[0].compile(ctx)
@@ -534,6 +654,7 @@ class Inplace(Statement):
             self.children.append(expr)
 
     def compile(self, ctx):
+        Node.compile(self, ctx)
         varidx = ctx.getdataidx(self.name)
 
         if len(self) == 1:
@@ -567,6 +688,7 @@ class Print(Statement):
                 self.children.append(node)
 
     def compile(self, ctx):
+        Node.compile(self, ctx)
         if len(self.children) == 0:
             ctx.emit_WRITENL(ctx.STDOUT)
         else:
@@ -589,6 +711,7 @@ class Print(Statement):
 
 class Return(Statement):
     def compile(self, ctx):
+        Node.compile(self, ctx)
         assert len(self.children) == 1
         idx = self.children[0].compile(ctx)
         ctx.emit_RET(idx)
@@ -597,7 +720,10 @@ class Return(Statement):
 
 class ConstValue(Node):
     def mkobj(self):
-        return types.DNull()
+        """
+        Subclasses should implement this and return a new typesystem object based on their type
+        """
+        raise NotImplementedError
 
 
 class Integer(ConstValue):
@@ -605,6 +731,7 @@ class Integer(ConstValue):
         self._int = int(self.data.rstrip("i"))
 
     def compile(self, ctx):
+        Node.compile(self, ctx)
         return ctx.pushobj(self.mkobj())
 
     def mkobj(self):
@@ -619,6 +746,7 @@ class Float(ConstValue):
         self._float = float(self.data.rstrip("f"))
 
     def compile(self, ctx):
+        Node.compile(self, ctx)
         return ctx.pushobj(self.mkobj())
 
     def mkobj(self):
@@ -641,6 +769,7 @@ class String(ConstValue):
                 self._str = self._str[:endstop]
 
     def compile(self, ctx):
+        Node.compile(self, ctx)
         return ctx.pushobj(self.mkobj())
 
     def mkobj(self):
@@ -661,6 +790,7 @@ class Call(Node):
                 self.children.append(node)
 
     def compile(self, ctx):
+        Node.compile(self, ctx)
         name = self.target.getName()
 
         if has_builtin(name):
@@ -680,11 +810,32 @@ class Call(Node):
         for argvalidx in args:
             ctx.emit_LIST_ADD(arglistidx, argvalidx)
 
-        # return value dest
-        funcnameidx = ctx.pushobj(types.DString.new_str(name))
-        retidx = ctx.pushobj(types.DNull())
-        ctx.emit_CALL(funcnameidx, arglistidx, retidx)
-        return retidx
+        # get return value type
+        if ctx.namespace.contains_func(name):
+            rettype_name = ctx.namespace.get_func(name).get_return_type_name()
+            if rettype_name != "auto":
+                # return value dest
+                RetType = types.AutoType(rettype_name)
+                retidx = ctx.pushobj(RetType())
+            else:
+                # no return value
+                retidx = -1
+
+            funcnameidx = ctx.pushobj(types.DString.new_str(name))
+            ctx.emit_CALL(funcnameidx, arglistidx, retidx)
+            return retidx
+
+        elif ctx.namespace.contains_struct(name):
+            structnameidx = ctx.pushobj(types.DString.new_str(name))
+            retidx = ctx.pushobj(types.DStructInstance.new_struct(
+                ctx.namespace.get_struct(name)))
+            ctx.emit_CALL(structnameidx, arglistidx, retidx)
+            return retidx
+
+        else:
+            # no function found
+            raise ValueError("No function found named '%s'" % name)
+
 
     def _getRepr(self):
         return [self.target.getDottedName()]
@@ -736,6 +887,7 @@ class Name(VarName):
         raise NotImplementedError("Names can't have child nodes")
 
     def compile(self, ctx):
+        Node.compile(self, ctx)
         return ctx.getdataidx(self._name)
 
     def getName(self):
@@ -760,6 +912,7 @@ class DottedName(VarName):
                 raise TypeError(name.type)
 
     def compile(self, ctx):
+        Node.compile(self, ctx)
         return ctx.getdataidx(self.getName())
 
     def getName(self):

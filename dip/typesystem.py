@@ -6,8 +6,10 @@ from collections import OrderedDict
 from rpython.rlib.objectmodel import we_are_translated
 from rpython.rlib.debug import make_sure_not_resized
 
+from bytecode import INST_STRS
 
-def nameToType(name, ns=None):
+
+def AutoType(name, ns=None):
     """
     Takes the name of a type and returns the type class associated with it
     """
@@ -23,7 +25,12 @@ def nameToType(name, ns=None):
 class DBase(object):
     typename = "base"
     refcnt = 0
+
+    # can this type be hashed?
     hashable = False
+
+    # is this a numeric type?
+    numeric = False
 
     def __init__(self):
         pass
@@ -50,11 +57,40 @@ class DBase(object):
     def assign_list(self, vals):
         raise NotImplementedError("%s.assign_list()" % self.basetype)
 
-    def operator(self, op, other):
-        raise ValueError("Unimplemented operator %s on type %s" % (op, self.typename))
+    def operator_bool(self, op, other):
+        """
+        Given self, the operator as a string, and other as another DBase object,
+        return a Python bool representing the operation.
+        """
+        raise ValueError("Unimplemented operator_bool %s on type %s" % (op, self.typename))
 
-    def operator_py(self, op, other):
-        raise ValueError("Unimplemented operator %s on type %s" % (op, self.typename))
+    def operator_int(self, op, other):
+        """
+        Given self, the operator as a string, and other as another DBase object,
+        return a Python int representing the operation
+        """
+        raise ValueError("Unimplemented operator_int %s on type %s" % (op, self.typename))
+
+    def operator_float(self, op, other):
+        """
+        Given self, the operator as a string, and other as another DBase object,
+        return a Python float representing the operation
+        """
+        raise ValueError("Unimplemented operator_float %s on type %s" % (op, self.typename))
+
+    def operator_str(self, op, other):
+        """
+        Given self, the operator as a string, and other as another DBase object,
+        return a Python str representing the operation
+        """
+        raise ValueError("Unimplemented operator_str %s on type %s" % (op, self.typename))
+
+    def operator_inplace(self, op, other):
+        """
+        Given self, the operator as a string, and other as another DBase object,
+        do an inplace operation on self
+        """
+        raise ValueError("Unimplemented operator_inplace %s on type %s" % (op, self.typename))
 
     def typecmp(self, other):
         return DBool(self.typecmp_py())
@@ -76,7 +112,7 @@ class DBase(object):
         return DString.new_str(self.str_py())
 
     def str_py(self):
-        return self.repr_py()
+        raise NotImplementedError("%s.str_py()" % self.basetype)
 
     def int(self):
         return DInteger(self.int_py())
@@ -157,16 +193,16 @@ class DBase(object):
 class DUnknown(DBase):
     typename = "unknown"
     hashable = False
+    numeric = False
 
-
-class DAuto(DBase):
-    typename = "auto"
-    hashable = False
+    def repr_py(self):
+        return "<DUnknown>"
 
 
 class DNull(DBase):
     typename = "null"
     hashable = False
+    numeric = False
 
     def copy(self):
         return self
@@ -190,6 +226,7 @@ class DNull(DBase):
 class DBool(DBase):
     typename = "bool"
     hashable = True
+    numeric = False
 
     def __init__(self):
         self._bool = False
@@ -214,13 +251,13 @@ class DBool(DBase):
     def copy(self):
         return DBool.new_bool(self._bool)
 
-    def operator(self, op, other):
+    def operator_bool(self, op, other):
         if op == "==":
-            return DBool.new_bool(self._bool == other.bool_py())
+            return self._bool == other.bool_py()
         elif op == "!=":
-            return DBool.new_bool(self._bool != other.bool_py())
+            return self._bool != other.bool_py()
         else:
-            raise ValueError("Invalid operator %s" % op)
+            raise ValueError("Unimplemented operator_bool %s on type %s" % (op, self.typename))
 
     def bool_py(self):
         return self._bool
@@ -244,6 +281,7 @@ class DBool(DBase):
 class DInteger(DBase):
     typename = "int"
     hashable = True
+    numeric = True
 
     def __init__(self):
         self._int = 0
@@ -262,31 +300,51 @@ class DInteger(DBase):
             assert type(val) is int
         self._int = val
 
-    def operator(self, op, other):
-        if not we_are_translated():
-            assert type(other) is DInteger
-        if op == "+":
-            return DInteger.new_int(self._int + other._int)
-        elif op == "-":
-            return DInteger.new_int(self._int - other._int)
-        elif op == "*":
-            return DInteger.new_int(self._int * other._int)
-        elif op == "/":
-            return DInteger.new_int(self._int // other._int)
-        elif op == "==":
-            return DBool.new_bool(self._int == other._int)
+    def operator_bool(self, op, other):
+        if other.numeric == False:
+            raise ValueError("DInteger cannot do operator_bool on non-numeric type")
+        if op == "==":
+            return self._int == other.int_py()
         elif op == "!=":
-            return DBool.new_bool(self._int != other._int)
+            return self._int != other.int_py()
         elif op == "<":
-            return DBool.new_bool(self._int < other._int)
+            return self._int < other.int_py()
         elif op == ">":
-            return DBool.new_bool(self._int > other._int)
+            return self._int > other.int_py()
         elif op == "<=":
-            return DBool.new_bool(self._int <= other._int)
+            return self._int <= other.int_py()
         elif op == ">=":
-            return DBool.new_bool(self._int >= other._int)
+            return self._int >= other.int_py()
         else:
-            raise ValueError("Invalid operator %s" % op)
+            raise ValueError("Unimplemented operator_bool %s on type %s" % (op, self.typename))
+
+    def operator_int(self, op, other):
+        if other.numeric == False:
+            raise ValueError("DInteger cannot do operator_int on non-numeric type")
+        if op == "+":
+            return self._int + other.int_py()
+        elif op == "-":
+            return self._int - other.int_py()
+        elif op == "*":
+            return self._int * other.int_py()
+        elif op == "/":
+            return int(self._int / other.int_py())
+        else:
+            raise ValueError("Unimplemented operator_int %s on type %s" % (op, self.typename))
+
+    def operator_float(self, op, other):
+        if other.numeric == False:
+            raise ValueError("DInteger cannot do operator_float on non-numeric type")
+        if op == "+":
+            return float(self._int) + other.float_py()
+        elif op == "-":
+            return float(self._int) - other.float_py()
+        elif op == "*":
+            return float(self._int) * other.float_py()
+        elif op == "/":
+            return float(self._int) / other.float_py()
+        else:
+            raise ValueError("Unimplemented operator_float %s on type %s" % (op, self.typename))
 
     def sqrt_py(self):
         return math.sqrt(self.float_py())
@@ -313,6 +371,7 @@ class DInteger(DBase):
 class DFloat(DBase):
     typename = "float"
     hashable = True
+    numeric = True
 
     def __init__(self):
         self._float = 0.0
@@ -331,23 +390,51 @@ class DFloat(DBase):
             assert type(val) is float
         self._float = val
 
-    def operator(self, op, other):
-        if not we_are_translated():
-            assert type(other) is DFloat
-        if op == "+":
-            return DFloat.new_float(self._float + other._float)
-        elif op == "-":
-            return DFloat.new_float(self._float - other._float)
-        elif op == "*":
-            return DFloat.new_float(self._float * other._float)
-        elif op == "/":
-            return DFloat.new_float(self._float / other._float)
-        elif op == "==":
-            return DBool.new_bool(self._float == other._float)
+    def operator_bool(self, op, other):
+        if other.numeric == False:
+            raise ValueError("DFloat cannot do operator_bool on non-numeric type")
+        if op == "==":
+            return self._float == other.float_py()
         elif op == "!=":
-            return DBool.new_bool(self._float != other._float)
+            return self._float != other.float_py()
+        elif op == ">":
+            return self._float > other.float_py()
+        elif op == "<":
+            return self._float < other.float_py()
+        elif op == ">=":
+            return self._float >= other.float_py()
+        elif op == "<=":
+            return self._float <= other.float_py()
         else:
-            raise ValueError("Invalid operator")
+            raise ValueError("Unimplemented operator_bool %s on type %s" % (op, self.typename))
+
+    def operator_int(self, op, other):
+        if other.numeric == False:
+            raise ValueError("DFloat cannot do operator_float on non-numeric type")
+        if op == "+":
+            return int(self._float + other.float_py())
+        elif op == "-":
+            return int(self._float - other.float_py())
+        elif op == "*":
+            return int(self._float * other.float_py())
+        elif op == "/":
+            return int(self._float / other.float_py())
+        else:
+            raise ValueError("Unimplemented operator_int %s on type %s" % (op, self.typename))
+
+    def operator_float(self, op, other):
+        if other.numeric == False:
+            raise ValueError("DFloat cannot do operator_float on non-numeric type")
+        if op == "+":
+            return self._float + other.float_py()
+        elif op == "-":
+            return self._float - other.float_py()
+        elif op == "*":
+            return self._float * other.float_py()
+        elif op == "/":
+            return self._float / other.float_py()
+        else:
+            raise ValueError("Unimplemented operator_float %s on type %s" % (op, self.typename))
 
     def sqrt_py(self):
         return math.sqrt(self._float)
@@ -371,7 +458,9 @@ class DFloat(DBase):
         val = str(self._float)
         if "." in val:
             while val.endswith("0"):
-                val = val[:len(val)-1]
+                endstop = len(val) - 1
+                if endstop > 2:
+                    val = val[:endstop]
             if val.endswith("."):
                 return val + "0"
             else:
@@ -383,6 +472,7 @@ class DFloat(DBase):
 class DString(DBase):
     typename = "str"
     hashable = True
+    numeric = False
 
     def __init__(self):
         self._str = ""
@@ -401,17 +491,22 @@ class DString(DBase):
             assert type(val) is str
         self._str = val
 
-    def operator(self, op, other):
-        if not we_are_translated():
-            assert type(other) is DString
-        if op == "+":
-            return DString.new_str(self._str + other._str)
-        elif op == "==":
-            return DBool.new_bool(self._str == other._str)
+    def operator_bool(self, op, other):
+        # avoid a PHP situation where ("123" == 123)
+        if not isinstance(other, DString):
+            raise ValueError("Cannot compare strings with non-strings")
+        if op == "==":
+            return self._str == other.str_py()
         elif op == "!=":
-            return DBool.new_bool(self._str != other._str)
+            return self._str != other.str_py()
         else:
-            raise ValueError("Invalid operator")
+            raise ValueError("Unimplemented operator_bool %s on type %s" % (op, self.typename))
+
+    def operator_str(self, op, other):
+        if op == "+":
+            return self._str + other.str_py()
+        else:
+            raise ValueError("Unimplemented operator_str %s on type %s" % (op, self.typename))
 
     def bool_py(self):
         if len(self._str) == 0:
@@ -435,15 +530,40 @@ class DString(DBase):
 class DFunc(DBase):
     typename = "func"
     hashable = False
+    numeric = False
 
-    def setfuncdata(self, name, args, bytecode, data, vars):
-        self.name = name
-        self.args = args
+    @staticmethod
+    def new_func(name, args, rettype):
+        inst = DFunc()
+        inst.name = name
+        inst.args = args
+        inst.rettype = rettype
+        inst.is_complete = False # this function lacks code and can't be called
+        return inst
+
+    def set_code(self, bytecode, bytecode_info, data, vars):
+        # the bytecode instructions
         self.bytecode = bytecode
+        # bytecode annotations like source line number
+        self.bytecode_info = bytecode_info
+        # data registers
         self.data = data
+        # name to data register binding dict
         self.vars = vars
+        # this function is now a complete function object
+        self.is_complete = True
 
-    def mkframe(self, args):
+    def get_return_type_name(self):
+        return self.rettype[len(self.rettype) - 1]
+
+    def mkdatareg(self, args):
+        """
+        Takes the arguments to the function and returns a fresh copy of a data array
+        suitable for Frame.data registers.
+        """
+        if self.is_complete == False:
+            raise ValueError("Cannot call mkdata on incomplete function")
+
         assert type(args) is DList
 
         # make a copy of the function registers that will be the "register" stack during execution
@@ -454,24 +574,54 @@ class DFunc(DBase):
 
         # populate function argument values
         if args.len_py() != len(self.args):
-            #print args.repr_py()
-            #print self.args
             raise ValueError("Wrong number of arguments passed to function %s" % self.name)
         for i in range(len(self.args)):
-            name, fulltype, dataidx = self.args[i]
-            framedata[dataidx] = args.getitem_pyidx(i)
+            name, fulltype = self.args[i]
+            framedata[i] = args.getitem_pyidx(i)
 
-        return (self.bytecode, framedata, self.vars.copy())
+        return framedata
 
-    def operator(self, op, other):
-        if op == "==":
-            return DBool.new_bool(self == other)
+    def operator_bool(self, op, other):
+        if not isinstance(other, DFunc):
+            return False
+        elif op == "==":
+            return self == other
         elif op == "!=":
-            return DBool.new_bool(self != other)
-        raise ValueError("Unimplemented operator %s on type %s" % (op, self.typename))
+            return self != other
+        else:
+            raise ValueError("Unimplemented operator_bool %s on type %s" % (op, self.typename))
 
     def repr_py(self):
         return "<%s: %s>" % (self.basetype, self.name)
+
+    def toString(self):
+        bc = []
+        for i, (inst, a, b, c) in enumerate(self.bytecode):
+            args = []
+            for val in [a, b, c]:
+                if val != -1:
+                    args.append(str(val))
+
+            instname = INST_STRS[inst]
+            argnames = ", ".join(args)
+            comment = self.bytecode_info[i].comment
+            if len(comment) > 0:
+                comment = " # %s" % comment
+            bc.append("    %s : %s (%s)%s" % (i, instname, argnames, comment))
+
+        # make reverse references
+        vars_rev = {}
+        for key, val in self.vars.items():
+            vars_rev[val] = key
+
+        data = []
+        for i, obj in enumerate(self.data):
+            name = ""
+            if i in vars_rev:
+                name = " (bound to name: %s)" % vars_rev[i]
+            data.append("    %s : %s%s" % (i, obj.repr_py(), name))
+
+        return "bytecode:\n%s\ndata:\n%s" % ("\n".join(bc), "\n".join(data))
 
 
 class StructDef(object):
@@ -509,6 +659,7 @@ class DStructInstance(DBase):
     """
     typename = "struct"
     hashable = True # maybe - depends on contained types
+    numeric = False
 
     #def __init__(self):
     #    self.set_structdef(StructDef("empty", 0))
@@ -561,9 +712,15 @@ class DStructInstance(DBase):
 
     def repr_py(self):
         vals = []
-        for val in self.fields:
-            vals.append(val.repr_py())
+        for name, i in self.fieldnames.items():
+            vals.append("%s=%s" % (name, self.fields[i].repr_py()))
         return "<%s: %s>" % (self.typename, ", ".join(vals))
+
+    def str_py(self):
+        vals = []
+        for name, i in self.fieldnames.items():
+            vals.append("%s=%s" % (name, self.fields[i].str_py()))
+        return "{ %s }" % ", ".join(vals)
 
     def hash_py(self):
         if self.hashable:
@@ -612,6 +769,7 @@ class DList(DBase):
     """
     typename = "list"
     hashable = False
+    numeric = False
 
     def __init__(self):
         self._list = []
@@ -629,21 +787,27 @@ class DList(DBase):
             newlist._list.append(item.copy())
         return newlist
 
-    def operator(self, op, other):
-        if not we_are_translated():
-            assert type(other) is DList
-        if op == "+":
-            newlist = DList()
-            for item in self._list:
-                newlist._list.append(item)
-            for item in other._list:
-                newlist._list.append(item)
-            return newlist
+    def operator_bool(self, op, other):
+        if not isinstance(other, DList):
+            return False
+        elif op == "==":
+            if len(self._list) != other.len_py():
+                return False
+            else:
+                for i in range(len(self._list)):
+                    if self._list[i].operator_bool("!=", other.getitem_pyidx(i)):
+                        return False
+                return True
+        elif op == "!=":
+            if len(self._list) == other.len_py():
+                return False
+            else:
+                for i in range(len(self._list)):
+                    if self._list[i].operator_bool("==", other.getitem_pyidx(i)):
+                        return False
+                return True
         else:
-            raise ValueError("Invalid operator %s" % op)
-
-    def hash_py(self):
-        return id(self._list)
+            raise ValueError("Unimplemented operator_bool %s on type %s" % (op, self.typename))
 
     def getitem(self, idx):
         assert isinstance(idx, DInteger)
@@ -723,9 +887,6 @@ class DList(DBase):
 #            return newarr
 #        else:
 #            raise ValueError("Invalid operator %s" % op)
-#
-#    def hash_py(self):
-#        return id(self._array)
 #
 #    def getitem(self, idx):
 #        return self._array[idx.int_py()]

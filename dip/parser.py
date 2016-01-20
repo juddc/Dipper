@@ -9,6 +9,7 @@ from rpython.rlib.parsing.parsing import ParseError
 import rpython.rlib.parsing.tree as parsetree
 
 from dip import ast
+from dip.errors import error_message, error_from_exception
 
 #grammar = py.path.local("./dip").join("grammar.txt").read("rt")
 #regexs, rules, astGenerator = parse_ebnf(grammar)
@@ -77,7 +78,7 @@ class DipperParser(object):
         "del_stmt":                                 ast.NullNode,
         "simple_block":      ast.Block,
         "complex_block":     ast.Block,
-        "for_block":                                ast.NullNode,
+        "for_block":         ast.ForLoop,
         "loop_block":                               ast.NullNode,
         "exprblock":                                ast.NullNode,
         "simple_exprblock":                         ast.NullNode,
@@ -137,6 +138,7 @@ class DipperParser(object):
 
     def __init__(self, debug=False):
         self.debug = debug
+        self.filename = ""
 
     def _printErrorInfo(self, e):
         pos = e.source_pos
@@ -145,6 +147,7 @@ class DipperParser(object):
         print ""
 
     def readDipFile(self, filename):
+        self.filename = filename
         with open (filename) as fp:
             return fp.read()
 
@@ -186,12 +189,20 @@ class DipperParser(object):
     def parseFile(self, filename):
         return self.parse(self.readDipFile(filename))
 
-    def parse(self, source):
+    def parse(self, source, filename=None):
+        if filename is not None:
+            self.filename = filename
+
         source = self._prepSource(source)
         try:
             result = parseFunc(source)
         except ParseError as e:
-            self._printErrorInfo(e)
+            if self.filename != "":
+                err = e.nice_error_message().split("\n")
+                msg = err[len(err) - 1]
+                print error_message(self.filename, (e.source_pos.lineno, e.source_pos.columnno), msg)
+            else:
+                self._printErrorInfo(e)
             return None
 
         newtree = ToAST().transform(result)
@@ -226,7 +237,12 @@ class DipperParser(object):
             #node = nodeType(item.additional_info if hasattr(item, ADDITIONAL_INFO) else "")
 
             try:
-                node = nodeType(item.additional_info)
+                source = (item.getsourcepos().lineno, item.getsourcepos().columnno)
+            except IndexError:
+                source = (-1, -1)
+
+            try:
+                node = nodeType(item.additional_info, source=source)
             except AttributeError:
                 node = nodeType("")
 

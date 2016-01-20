@@ -60,7 +60,7 @@ exprblock: simple_exprblock | complex_exprblock;
 simple_exprblock: [BLOCK_START] expr [BLOCK_END];
 complex_exprblock: [BLOCK_START] [NEWLINE] (stmt [NEWLINE])* (expr [NEWLINE]) [BLOCK_END];
 
-expr: <arith_expr> | <simple_expr> | <if_expr> | <match_expr> | <range_expr>;
+expr: <range_expr> | <arith_expr> | <simple_expr> | <if_expr> | <match_expr>;
 
 simple_expr: call | dotted_name;
 if_expr: ["if"] arith_expr exprblock ([NEWLINE]? ["else"] exprblock)?;
